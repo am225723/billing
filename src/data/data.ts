@@ -1,6 +1,11 @@
-// app/data.js
+// app/data.ts
 
-export const PAYERS = {
+export interface Payer {
+  name: string;
+  rates: Record<string, number>;
+}
+
+export const PAYERS: Record<string, Payer> = {
   aetna: {
     name: "Aetna",
     rates: {
