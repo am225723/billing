@@ -6,10 +6,28 @@ import { PAYERS } from "../data/data";
 type PayerKey = keyof typeof PAYERS;
 type Tab = "intake" | "followup";
 
+// Wizard State Types
+type ProblemLevel = "low" | "moderate";
+type RiskLevel = "low" | "moderate";
+type IntakeTherapy = "yes" | "no";
+type IntakeTime = "30-44" | "45-59" | "60+";
+type IntakeComplexity = "moderate" | "high";
+
 export default function Home() {
   const [selectedPayer, setSelectedPayer] = useState<PayerKey>("anthem");
   const [activeTab, setActiveTab] = useState<Tab>("intake");
   const [interactiveComplexity, setInteractiveComplexity] = useState(false);
+
+  // MDM Wizard State (Follow-Up)
+  const [showWizard, setShowWizard] = useState(false);
+  const [problemLevel, setProblemLevel] = useState<ProblemLevel>("low");
+  const [riskLevel, setRiskLevel] = useState<RiskLevel>("low");
+
+  // Intake Strategy Wizard State (New Patient)
+  const [showIntakeWizard, setShowIntakeWizard] = useState(false);
+  const [intakeTherapy, setIntakeTherapy] = useState<IntakeTherapy>("no");
+  const [intakeTime, setIntakeTime] = useState<IntakeTime>("30-44");
+  const [intakeComplexity, setIntakeComplexity] = useState<IntakeComplexity>("moderate");
 
   const payer = PAYERS[selectedPayer];
   const rates = payer.rates;
@@ -37,6 +55,35 @@ export default function Home() {
   const followUp99214Base = rates["99214"];
   const followUp99214Total = followUp99214Base + icFee;
 
+  // MDM Logic (Follow-Up)
+  const recommend99214 = problemLevel === "moderate" && riskLevel === "moderate";
+
+  // Intake Strategy Logic (New Patient)
+  let intakeRecommendation = "";
+  let intakeReason = "";
+  let intakeAlertClass = "bg-blue-50 border-blue-200 text-blue-900"; // Default
+
+  if (intakeTherapy === "yes") {
+    intakeReason = "💡 You cannot bill 90792 with therapy. You must use E/M codes.";
+    if (intakeTime === "60+" || intakeComplexity === "high") {
+      intakeRecommendation = "Recommend: 99205 + 90838 (The \"Maximizer\")";
+    } else {
+      intakeRecommendation = "Recommend: 99204 + 90836";
+    }
+  } else {
+    // Therapy = NO
+    if (selectedPayer === "anthem") {
+      intakeRecommendation = "Recommend: 90792";
+      intakeReason = "💰 Anthem pays ~$25 MORE for 90792 than 99205. Stick to 90792 unless you need add-on codes.";
+      intakeAlertClass = "bg-green-100 border-green-200 text-green-900";
+    } else {
+      if (intakeTime === "60+" || intakeComplexity === "high") {
+        intakeRecommendation = "Recommend: 99205";
+      } else {
+        intakeRecommendation = "Recommend: 90792";
+      }
+    }
+  }
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -128,6 +175,117 @@ export default function Home() {
         <div className="grid gap-6">
           {activeTab === "intake" && (
             <div className="space-y-6">
+
+              {/* Intake Strategy Wizard */}
+              <div className="rounded-xl bg-gray-50 border border-gray-200 overflow-hidden">
+                <button
+                  onClick={() => setShowIntakeWizard(!showIntakeWizard)}
+                  className="w-full px-6 py-4 flex items-center justify-between text-left bg-gray-100 hover:bg-gray-200 transition-colors"
+                >
+                  <span className="text-lg font-semibold text-gray-900">
+                    🚀 Intake Strategy Wizard
+                  </span>
+                  <span className="text-gray-500">
+                    {showIntakeWizard ? "▲" : "▼"}
+                  </span>
+                </button>
+
+                {showIntakeWizard && (
+                  <div className="p-6 space-y-6">
+                    {/* Question 1 */}
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-900">
+                        1. Did you include Psychotherapy?
+                      </p>
+                      <div className="flex gap-4">
+                         <label className={`flex items-center px-4 py-2 border rounded-lg cursor-pointer transition-colors ${intakeTherapy === 'yes' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="intakeTherapy"
+                            value="yes"
+                            checked={intakeTherapy === "yes"}
+                            onChange={() => setIntakeTherapy("yes")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">Yes (Unlocks E/M + Therapy)</span>
+                        </label>
+                        <label className={`flex items-center px-4 py-2 border rounded-lg cursor-pointer transition-colors ${intakeTherapy === 'no' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="intakeTherapy"
+                            value="no"
+                            checked={intakeTherapy === "no"}
+                            onChange={() => setIntakeTherapy("no")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">No (Unlocks 90792)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Question 2 */}
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-900">
+                        2. Total Face-to-Face Time?
+                      </p>
+                      <div className="flex flex-wrap gap-4">
+                        {(["30-44", "45-59", "60+"] as const).map((opt) => (
+                           <label key={opt} className={`flex items-center px-4 py-2 border rounded-lg cursor-pointer transition-colors ${intakeTime === opt ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                            <input
+                              type="radio"
+                              name="intakeTime"
+                              value={opt}
+                              checked={intakeTime === opt}
+                              onChange={() => setIntakeTime(opt)}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{opt} mins</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Question 3 */}
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-900">
+                        3. Medical Complexity / Risk?
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-4">
+                        <label className={`flex items-center px-4 py-2 border rounded-lg cursor-pointer transition-colors ${intakeComplexity === 'moderate' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="intakeComplexity"
+                            value="moderate"
+                            checked={intakeComplexity === "moderate"}
+                            onChange={() => setIntakeComplexity("moderate")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">Moderate (Standard Prescription Mgmt)</span>
+                        </label>
+                        <label className={`flex items-center px-4 py-2 border rounded-lg cursor-pointer transition-colors ${intakeComplexity === 'high' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="intakeComplexity"
+                            value="high"
+                            checked={intakeComplexity === "high"}
+                            onChange={() => setIntakeComplexity("high")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">High (Severe Crisis, Threat to Life)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Intake Recommendation Result */}
+                    <div className={`p-4 rounded-lg border ${intakeAlertClass}`}>
+                      <div className="font-bold mb-1 text-lg">{intakeRecommendation}</div>
+                      {intakeReason && <div className="text-sm">{intakeReason}</div>}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+
               <div className="grid gap-6 md:grid-cols-2">
                 {/* Standard Intake Card */}
                 <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
@@ -177,34 +335,144 @@ export default function Home() {
           )}
 
           {activeTab === "followup" && (
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Option A Card */}
-              <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-                <h3 className="text-lg font-semibold text-gray-900">Level 3 Visit</h3>
-                <p className="text-sm text-gray-500">Code 99213</p>
-                <div className="mt-4 text-3xl font-bold text-gray-900">
-                  {formatCurrency(followUp99213Total)}
-                </div>
-                {interactiveComplexity && (
-                    <p className="mt-1 text-xs text-green-600 font-medium">
-                      Includes +{formatCurrency(rates["90785"])} (90785)
-                    </p>
-                  )}
+            <div className="space-y-6">
+
+              {/* MDM Wizard */}
+              <div className="rounded-xl bg-gray-50 border border-gray-200 overflow-hidden">
+                <button
+                  onClick={() => setShowWizard(!showWizard)}
+                  className="w-full px-6 py-4 flex items-center justify-between text-left bg-gray-100 hover:bg-gray-200 transition-colors"
+                >
+                  <span className="text-lg font-semibold text-gray-900">
+                    🧙‍♂️ MDM Wizard (99213 vs 99214)
+                  </span>
+                  <span className="text-gray-500">
+                    {showWizard ? "▲" : "▼"}
+                  </span>
+                </button>
+
+                {showWizard && (
+                  <div className="p-6 space-y-6">
+                    {/* Question 1 */}
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-900">
+                        1. Patient Status?
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${problemLevel === 'low' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="problemLevel"
+                            value="low"
+                            checked={problemLevel === "low"}
+                            onChange={() => setProblemLevel("low")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-3 text-sm text-gray-700">
+                            Stable / Improving
+                          </span>
+                        </label>
+                        <label className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${problemLevel === 'moderate' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="problemLevel"
+                            value="moderate"
+                            checked={problemLevel === "moderate"}
+                            onChange={() => setProblemLevel("moderate")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-3 text-sm text-gray-700">
+                            Worsening / New Issue / 2+ Stable Issues
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Question 2 */}
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-900">
+                        2. Intervention?
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${riskLevel === 'low' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="riskLevel"
+                            value="low"
+                            checked={riskLevel === "low"}
+                            onChange={() => setRiskLevel("low")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-3 text-sm text-gray-700">
+                            Therapy only / No Med changes
+                          </span>
+                        </label>
+                        <label className={`flex items-center p-4 border rounded-lg cursor-pointer transition-colors ${riskLevel === 'moderate' ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name="riskLevel"
+                            value="moderate"
+                            checked={riskLevel === "moderate"}
+                            onChange={() => setRiskLevel("moderate")}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="ml-3 text-sm text-gray-700">
+                            Prescription Management
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Recommendation Result */}
+                    {recommend99214 ? (
+                      <div className="p-4 rounded-lg bg-green-100 border border-green-200 text-green-800">
+                        <div className="font-bold mb-1">✅ 99214 Recommended. (Moderate Complexity).</div>
+                        <div className="text-sm">
+                           You have both a qualifying problem and risk.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800">
+                        <div className="font-bold mb-1">⚠️ 99213 Recommended. (Low Complexity).</div>
+                        <div className="text-sm">
+                          You generally need BOTH a complex problem AND prescription management to bill 99214.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Option B Card */}
-              <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-                <h3 className="text-lg font-semibold text-gray-900">Level 4 Visit</h3>
-                <p className="text-sm text-gray-500">Code 99214</p>
-                <div className="mt-4 text-3xl font-bold text-gray-900">
-                  {formatCurrency(followUp99214Total)}
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Option A Card */}
+                <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-semibold text-gray-900">Level 3 Visit</h3>
+                  <p className="text-sm text-gray-500">Code 99213</p>
+                  <div className="mt-4 text-3xl font-bold text-gray-900">
+                    {formatCurrency(followUp99213Total)}
+                  </div>
+                  {interactiveComplexity && (
+                      <p className="mt-1 text-xs text-green-600 font-medium">
+                        Includes +{formatCurrency(rates["90785"])} (90785)
+                      </p>
+                    )}
                 </div>
-                {interactiveComplexity && (
-                    <p className="mt-1 text-xs text-green-600 font-medium">
-                      Includes +{formatCurrency(rates["90785"])} (90785)
-                    </p>
-                  )}
+
+                {/* Option B Card */}
+                <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
+                  <h3 className="text-lg font-semibold text-gray-900">Level 4 Visit</h3>
+                  <p className="text-sm text-gray-500">Code 99214</p>
+                  <div className="mt-4 text-3xl font-bold text-gray-900">
+                    {formatCurrency(followUp99214Total)}
+                  </div>
+                  {interactiveComplexity && (
+                      <p className="mt-1 text-xs text-green-600 font-medium">
+                        Includes +{formatCurrency(rates["90785"])} (90785)
+                      </p>
+                    )}
+                </div>
               </div>
+
             </div>
           )}
         </div>
