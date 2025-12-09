@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PAYERS } from '@/data/data';
+import { PAYERS } from './data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
@@ -21,7 +21,8 @@ export default function BillingCommandCenter() {
   const [intakeTherapy, setIntakeTherapy] = useState('no'); 
   const [intakeTime, setIntakeTime] = useState('standard'); 
   const [intakeRisk, setIntakeRisk] = useState('moderate');
-  const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838');
+  const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); // 90833, 90836, 90838
+  const [newPtMedicalLevel, setNewPtMedicalLevel] = useState('99205'); // 99204 or 99205
 
   // --- STATE: Med Check Wizard ---
   const [showMDMWizard, setShowMDMWizard] = useState(false);
@@ -49,11 +50,11 @@ export default function BillingCommandCenter() {
     return getRate(comboMedical) + getRate(comboTherapy);
   };
 
-  const getNewPatientMaximizerTotal = () => {
-    const emRate = getRate('99205');
-    const therapyRate = getRate(newPtTherapyAddOn);
-    return emRate + therapyRate;
+  // --- NEW PATIENT TOTAL (DYNAMIC) ---
+  const getNewPatientComboTotal = (emCode: string, therapyAddOn: string) => {
+    return getRate(emCode) + getRate(therapyAddOn);
   };
+
 
   // --- TELEHEALTH LOGIC ---
   const getTelehealthCompliance = () => {
@@ -88,15 +89,17 @@ export default function BillingCommandCenter() {
   const { pos, modifier, alert } = getTelehealthCompliance();
 
 
-  // --- FEATURE: Note Generator ---
+  // --- FEATURE: Note Generator (UPDATED) ---
   const copyNote = (type: string) => {
     let text = "";
     
     if (type === '90792') {
       text = `[LICENSURE: ${licensureModifier}]. Psychiatric diagnostic evaluation with medical services (90792). Comprehensive history, mental status exam, and initial plan formulation completed. Medical decision making included prescription management and ordering of diagnostic studies.`;
-    } else if (type === '99205_combo') {
+    } else if (type.startsWith('9920')) {
+      const emCode = type.includes('_99205') ? '99205' : '99204';
+      const complexity = emCode === '99205' ? 'High' : 'Moderate';
       const therapyMins = newPtTherapyAddOn === '90833' ? '16-37' : newPtTherapyAddOn === '90836' ? '38-52' : '53+';
-      text = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}]. New Patient Combo (99205-25${isTelehealth ? `-${modifier}` : ''} + ${newPtTherapyAddOn}). High complexity medical decision making due to [severe risk/threat to life/decision to hospitalize]. Separately identifiable psychotherapy (${therapyMins} mins) provided, distinct from medical management. Total face-to-face time >60 minutes.`;
+      text = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}]. New Patient Combo (${emCode}-25${isTelehealth ? `-${modifier}` : ''} + ${newPtTherapyAddOn}). Medical decision making ${complexity} due to [MDM justification]. Separately identifiable psychotherapy (${therapyMins} mins) provided, distinct from medical management. Total time >60 minutes.`;
     } else if (type === 'med_check_low') {
       text = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}]. Follow-up visit (99213${isTelehealth ? `-${modifier}` : ''}). Patient stable. Reviewed current medications and side effects. Low complexity medical decision making. Plan: Continue current regimen.`;
     } else if (type === 'med_check_mod') {
@@ -105,10 +108,10 @@ export default function BillingCommandCenter() {
       text = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}]. Combo Visit (${comboMedical}-25${isTelehealth ? `-${modifier}` : ''} + ${comboTherapy}). Medical management provided for [diagnosis]. Separately identifiable psychotherapy (${comboTherapy === '90833' ? '16-37' : comboTherapy === '90836' ? '38-52' : '53+'} mins) provided. Therapy distinct from medical work, focusing on coping strategies and symptom processing.`;
     }
 
-    // Replace the alert() function with a console log for file generation compliance
+    // Use console.log for file generation compliance and ensure text is copied
     console.log("Note copied to clipboard:", text);
     navigator.clipboard.writeText(text); 
-    // Show a custom message box instead of alert, but for simplicity in this final output, we'll use a direct copy instruction.
+    alert(`Clipboard ready: ${type} note template copied!`);
   };
 
   return (
@@ -132,7 +135,7 @@ export default function BillingCommandCenter() {
              >
                 <option value="AF">AF - Psychiatrist (MD/DO)</option>
                 <option value="AH">AH - Clinical Psychologist (PhD)</option>
-                <option value="HO">HO - Master&apos;s Level (LCSW, LPC)</option>
+                <option value="HO">HO - Master's Level (LCSW, LPC)</option>
                 <option value="SA">SA - Nurse Practitioner (NP)</option>
              </select>
           </div>
@@ -184,62 +187,50 @@ export default function BillingCommandCenter() {
           ))}
         </div>
 
-        {/* TAB 1: NEW PATIENT */}
+        {/* TAB 1: NEW PATIENT (Full Decision Engine) */}
         {activeTab === 'new_patient' && (
           <div className="p-6 space-y-4">
-            <h2 className="font-bold text-lg mb-2">New Patient Intake</h2>
+            <h2 className="font-bold text-lg mb-2">New Patient Intake (Intake Strategy)</h2>
             
-            {/* INTAKE STRATEGY WIZARD */}
+            {/* INTAKE MDM WIZARD */}
             <button 
               onClick={() => setShowIntakeWizard(!showIntakeWizard)}
               className="w-full py-2 bg-blue-100 text-blue-700 font-bold rounded hover:bg-blue-200 transition text-sm mb-2"
             >
-              {showIntakeWizard ? "Hide Wizard" : "🚀 Launch Intake Strategy Wizard"}
+              {showIntakeWizard ? "Hide MDM Wizard" : "🚀 Launch E/M MDM Wizard (99204 vs 99205)"}
             </button>
 
             {showIntakeWizard && (
               <div className="bg-slate-100 p-4 rounded-lg space-y-3 border border-slate-200 text-sm">
                 <div>
-                  <span className="font-bold block mb-1">1. Did you do Therapy?</span>
-                  <div className="flex space-x-2">
-                    <button onClick={() => setIntakeTherapy('yes')} className={`flex-1 py-1 border rounded ${intakeTherapy === 'yes' ? 'bg-blue-600 text-white' : 'bg-white'}`}>Yes</button>
-                    <button onClick={() => setIntakeTherapy('no')} className={`flex-1 py-1 border rounded ${intakeTherapy === 'no' ? 'bg-blue-600 text-white' : 'bg-white'}`}>No</button>
+                  <span className="font-bold block mb-1">1. Estimated MDM Level:</span>
+                  <div className="text-xs text-slate-600 mb-2">Check at least 2 elements to justify the E/M code.</div>
+                  <div className="flex flex-col space-y-2">
+                    <label className="flex items-center space-x-2">
+                        <input type="checkbox" checked={newPtMedicalLevel === '99205'} onChange={() => setNewPtMedicalLevel('99205')} className="h-4 w-4 text-blue-600 border-gray-300 rounded" />
+                        <span className="text-slate-800">High Risk or 60+ mins (Justifies 99205)</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                        <input type="checkbox" checked={newPtMedicalLevel === '99204'} onChange={() => setNewPtMedicalLevel('99204')} className="h-4 w-4 text-blue-600 border-gray-300 rounded" />
+                        <span className="text-slate-800">Moderate MDM/Time (Justifies 99204)</span>
+                    </label>
                   </div>
                 </div>
-                <div>
-                  <span className="font-bold block mb-1">2. Time Spent?</span>
-                  <div className="flex space-x-2">
-                    <button onClick={() => setIntakeTime('standard')} className={`flex-1 py-1 border rounded ${intakeTime === 'standard' ? 'bg-blue-600 text-white' : 'bg-white'}`}>30-59m</button>
-                    <button onClick={() => setIntakeTime('long')} className={`flex-1 py-1 border rounded ${intakeTime === 'long' ? 'bg-blue-600 text-white' : 'bg-white'}`}>60m+</button>
-                  </div>
+                
+                <div className={`p-3 rounded text-sm border ${newPtMedicalLevel === '99205' ? 'bg-green-100 border-green-300 text-green-900' : 'bg-yellow-100 border-yellow-300 text-yellow-900'}`}>
+                    <strong>E/M Code Recommended:</strong> 
+                    <span className="font-bold ml-1">{newPtMedicalLevel === '99205' ? '99205 (High)' : '99204 (Moderate)'}</span>
                 </div>
-                 <div>
-                  <span className="font-bold block mb-1">3. Complexity?</span>
-                  <div className="flex space-x-2">
-                    <button onClick={() => setIntakeRisk('moderate')} className={`flex-1 py-1 border rounded ${intakeRisk === 'moderate' ? 'bg-blue-600 text-white' : 'bg-white'}`}>Moderate</button>
-                    <button onClick={() => setIntakeRisk('high')} className={`flex-1 py-1 border rounded ${intakeRisk === 'high' ? 'bg-blue-600 text-white' : 'bg-white'}`}>High (Crisis)</button>
-                  </div>
-                </div>
-                <div className="p-3 bg-yellow-100 border border-yellow-300 rounded text-yellow-900 mt-2">
-                  {intakeTherapy === 'yes' ? (
-                    <span><strong>Recommendation:</strong> Use <strong>99204/99205 + Therapy Add-on</strong>. (90792 is generally disallowed with separate therapy.)</span>
-                  ) : (
-                    <span>
-                      {selectedPayer === 'anthem' && intakeTime !== 'long' && intakeRisk !== 'high' ? (
-                        <span><strong>Recommendation: 90792.</strong> Anthem pays more for this than 99204/5.</span>
-                      ) : (
-                        <span><strong>Recommendation:</strong> {intakeRisk === 'high' || intakeTime === 'long' ? '99205 (High Complexity)' : '90792 (Standard)'}</span>
-                      )}
-                    </span>
-                  )}
+                <div className="text-xs text-red-600">
+                    *If no therapy provided, check Payer rates below: 90792 pays more than 99204 for many commercial payers.
                 </div>
               </div>
             )}
             
-            {/* New Selector for Therapy Time */}
+            {/* Therapy Selector */}
             <div className="bg-slate-100 p-4 rounded-lg border border-slate-200">
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
-                    Select Therapy Time (For Maximizer Combo)
+                    Select Psychotherapy Time (Add-On Code)
                 </label>
                 <select 
                     value={newPtTherapyAddOn}
@@ -251,23 +242,40 @@ export default function BillingCommandCenter() {
                     <option value="90838">53+ minutes (90838)</option>
                 </select>
                 <div className="text-xs text-slate-500 mt-2">
-                    Pairs with **99205** for the total below. Remember **Modifier 25** is required!
+                    This determines the add-on code for all E/M combos below.
                 </div>
             </div>
 
-            {/* Maximizer Combo Card */}
-            <div className="p-4 rounded-lg border border-green-600 bg-green-50 flex justify-between items-center group">
+            {/* E/M Combo Cards */}
+            <h3 className="font-bold text-md text-slate-700 border-b pb-1 mt-6">E/M + Psychotherapy Combos (Modifier 25 Required)</h3>
+
+            {/* 99204 Combo Card */}
+            <div className="p-4 rounded-lg border border-orange-600 bg-orange-50 flex justify-between items-center group">
               <div>
-                <div className="font-bold text-green-800">MAXIMIZER TOTAL</div>
-                <div className="text-sm text-slate-500">99205-25 + {newPtTherapyAddOn}</div>
+                <div className="font-bold text-orange-800">99204 + {newPtTherapyAddOn}</div>
+                <div className="text-sm text-slate-500">Moderate Intake + Selected Therapy Add-on</div>
               </div>
               <div className="text-right">
-                <div className="text-xl font-bold text-green-600">{formatCurrency(getNewPatientMaximizerTotal())}</div>
+                <div className="text-xl font-bold text-orange-600">{formatCurrency(getNewPatientComboTotal('99204', newPtTherapyAddOn))}</div>
+                <button onClick={() => copyNote('99204_combo')} className="text-xs text-orange-600 hover:text-orange-800 underline mt-1">📋 Copy Note</button>
+              </div>
+            </div>
+
+            {/* 99205 Combo Card */}
+            <div className="p-4 rounded-lg border border-green-600 bg-green-50 flex justify-between items-center group">
+              <div>
+                <div className="font-bold text-green-800">99205 + {newPtTherapyAddOn}</div>
+                <div className="text-sm text-slate-500">High Intake + Selected Therapy Add-on (MAX)</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xl font-bold text-green-600">{formatCurrency(getNewPatientComboTotal('99205', newPtTherapyAddOn))}</div>
                 <button onClick={() => copyNote('99205_combo')} className="text-xs text-green-600 hover:text-green-800 underline mt-1">📋 Copy Note</button>
               </div>
             </div>
 
+
             {/* Standard 90792 Card */}
+            <h3 className="font-bold text-md text-slate-700 border-b pb-1 mt-6">Standard Intake (No Therapy Add-on)</h3>
             <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex justify-between items-center group">
               <div>
                 <div className="font-bold text-slate-800">90792</div>
@@ -285,9 +293,9 @@ export default function BillingCommandCenter() {
         {/* TAB 2: MED CHECK */}
         {activeTab === 'med_check' && (
           <div className="p-6 space-y-4">
-            <h2 className="font-bold text-lg mb-2">Medication Management</h2>
+            <h2 className="font-bold text-lg mb-2">Medication Management (E/M Only)</h2>
             <button onClick={() => setShowMDMWizard(!showMDMWizard)} className="w-full py-2 bg-indigo-100 text-indigo-700 font-bold rounded hover:bg-indigo-200 transition text-sm">
-              {showMDMWizard ? "Hide MDM Wizard" : "🧙‍♂️ Launch MDM Wizard"}
+              {showMDMWizard ? "Hide MDM Wizard" : "🧙‍♂️ Launch MDM Wizard (99213 vs 99214)"}
             </button>
 
             {showMDMWizard && (
@@ -340,6 +348,7 @@ export default function BillingCommandCenter() {
                 <select value={comboMedical} onChange={(e) => setComboMedical(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
                   <option value="99213">99213 (Low)</option>
                   <option value="99214">99214 (Mod)</option>
+                  <option value="99215">99215 (High)</option>
                 </select>
               </div>
               <div>
@@ -383,7 +392,7 @@ export default function BillingCommandCenter() {
             )}
             {therapyType === 'family' && (
                <div className="space-y-3">
-                 {[{c:'90846',l:'Family (No Patient)'},{c:'90847',l:'Family (With Patient)'}].map(i=>(
+                 {[{c:'90846',l:'No Patient'},{c:'90847',l:'With Patient'}].map(i=>(
                    <div key={i.c} className="p-3 bg-white border rounded flex justify-between"><span>{i.l} ({i.c})</span><span className="font-bold">{formatCurrency(getRate(i.c))}</span></div>
                  ))}
                </div>
@@ -412,7 +421,7 @@ export default function BillingCommandCenter() {
             {/* Caregiver Training Services (CTS) */}
             <div className="space-y-3">
                 <h3 className="font-bold text-md text-slate-700 border-b pb-1">Caregiver Training Services (CTS)</h3>
-                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient&apos;s condition (not relationship-focused like family therapy).</div>
+                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient's condition (not relationship-focused like family therapy).</div>
                 {[
                   { code: 'G0539', label: 'Initial 30 mins' },
                   { code: 'G0540', label: 'Add\'l 15 mins' },
