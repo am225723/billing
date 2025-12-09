@@ -1,24 +1,32 @@
+// app/page.tsx
 'use client';
 
 import { useState } from 'react';
-import { PAYERS } from '../data/data';
+import { PAYERS } from './data';
 
 export default function BillingCommandCenter() {
   const [activeTab, setActiveTab] = useState('new_patient');
   const [selectedPayer, setSelectedPayer] = useState('anthem');
   
-  // State for MDM Wizard (Med Check)
+  // --- STATE: New Patient Wizard ---
+  const [showIntakeWizard, setShowIntakeWizard] = useState(false);
+  const [intakeTherapy, setIntakeTherapy] = useState('no'); // 'yes', 'no'
+  const [intakeTime, setIntakeTime] = useState('standard'); // 'standard' (<60), 'long' (60+)
+  const [intakeRisk, setIntakeRisk] = useState('moderate'); // 'moderate', 'high'
+
+  // --- STATE: Med Check Wizard ---
   const [showMDMWizard, setShowMDMWizard] = useState(false);
   const [problemLevel, setProblemLevel] = useState('low');
   const [riskLevel, setRiskLevel] = useState('low');
 
-  // State for Combo Visit
+  // --- STATE: Combo Visit ---
   const [comboMedical, setComboMedical] = useState('99214');
   const [comboTherapy, setComboTherapy] = useState('90833');
 
-  // State for Therapy Suite
-  const [therapyType, setTherapyType] = useState('individual'); // individual, family, crisis, group
+  // --- STATE: Therapy Suite ---
+  const [therapyType, setTherapyType] = useState('individual');
 
+  // --- HELPER: Formatter ---
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
@@ -28,34 +36,39 @@ export default function BillingCommandCenter() {
     return payer?.rates[code] || 0;
   };
 
-  // Helper for Combo Total
   const getComboTotal = () => {
-    const medRate = getRate(comboMedical);
-    const therapyRate = getRate(comboTherapy);
-    return medRate + therapyRate;
+    return getRate(comboMedical) + getRate(comboTherapy);
   };
 
-  // Helper for MDM Wizard
-  const getMDMCode = () => {
-    if (problemLevel === 'high' || riskLevel === 'high') return '99214'; // Simplified for demo
-    if (problemLevel === 'moderate' || riskLevel === 'moderate') return '99214';
-    return '99213';
-  };
+  // --- FEATURE: Note Generator ---
+  const copyNote = (type: string) => {
+    let text = "";
+    
+    if (type === '90792') {
+      text = "Psychiatric Diagnostic Evaluation with medical services (90792). Comprehensive history, mental status exam, and initial plan formulation completed. Medical decision making included prescription management and ordering of diagnostic studies.";
+    } else if (type === '99205') {
+      text = "New Patient Intake (99205). High complexity medical decision making due to [severe risk/threat to life/decision to hospitalize]. Comprehensive assessment completed. Total face-to-face time >60 minutes.";
+    } else if (type === 'med_check_low') {
+      text = "Follow-up visit (99213). Patient stable. Reviewed current medications and side effects. Low complexity medical decision making. Plan: Continue current regimen.";
+    } else if (type === 'med_check_mod') {
+      text = "Follow-up visit (99214). Patient reports [worsening symptoms/new problem]. Moderate complexity medical decision making due to prescription management and problem status. Plan: [Adjusted dose/Added med].";
+    } else if (type === 'combo') {
+      text = `Combo Visit (${comboMedical} + ${comboTherapy}). Medical management provided for [diagnosis]. Separately identifiable psychotherapy (${comboTherapy === '90833' ? '16-37' : comboTherapy === '90836' ? '38-52' : '53+'} mins) provided. Therapy distinct from medical work, focusing on coping strategies and symptom processing.`;
+    }
 
-  const mdmCode = getMDMCode();
+    navigator.clipboard.writeText(text);
+    alert("📋 Note copied to clipboard!");
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-900">
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
         
-        {/* Header & Payer Selection */}
+        {/* Header */}
         <div className="bg-slate-900 p-6 text-white">
           <h1 className="text-xl font-bold mb-1">Billing Command Center</h1>
           <p className="text-slate-400 text-sm mb-4">Integrative Psychiatry • Dr. Zelisko</p>
-          
-          <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">
-            Select Payer
-          </label>
+          <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Select Payer</label>
           <select 
             value={selectedPayer}
             onChange={(e) => setSelectedPayer(e.target.value)}
@@ -67,275 +80,216 @@ export default function BillingCommandCenter() {
           </select>
         </div>
 
-        {/* 4-Tab Navigation */}
+        {/* Navigation */}
         <div className="flex border-b border-slate-200 text-xs font-bold uppercase tracking-wide">
-          <button 
-            onClick={() => setActiveTab('new_patient')}
-            className={`flex-1 py-3 text-center ${activeTab === 'new_patient' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            New Pt
-          </button>
-          <button 
-            onClick={() => setActiveTab('med_check')}
-            className={`flex-1 py-3 text-center ${activeTab === 'med_check' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            Med Check
-          </button>
-          <button
-            onClick={() => setActiveTab('combo')}
-            className={`flex-1 py-3 text-center ${activeTab === 'combo' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            Combo
-          </button>
-          <button
-            onClick={() => setActiveTab('psychotherapy')}
-            className={`flex-1 py-3 text-center ${activeTab === 'psychotherapy' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            Therapy
-          </button>
+          {['new_patient', 'med_check', 'combo', 'psychotherapy'].map(tab => (
+            <button 
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-3 text-center ${activeTab === tab ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              {tab.replace('_', ' ')}
+            </button>
+          ))}
         </div>
 
-        {/* Content Area */}
-        <div className="p-6">
+        {/* TAB 1: NEW PATIENT (With Wizard & Notes) */}
+        {activeTab === 'new_patient' && (
+          <div className="p-6 space-y-4">
+            <h2 className="font-bold text-lg mb-2">New Patient Intake</h2>
+            
+            {/* INTAKE STRATEGY WIZARD */}
+            <button 
+              onClick={() => setShowIntakeWizard(!showIntakeWizard)}
+              className="w-full py-2 bg-blue-100 text-blue-700 font-bold rounded hover:bg-blue-200 transition text-sm mb-2"
+            >
+              {showIntakeWizard ? "Hide Wizard" : "🚀 Launch Intake Strategy Wizard"}
+            </button>
 
-          {/* New Patient Tab */}
-          {activeTab === 'new_patient' && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-slate-800">Intake Strategy</h2>
-              <div className="grid gap-3">
-                 <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-900">90792</div>
-                      <div className="text-xs text-slate-500">Psychiatric Diagnostic Evaluation</div>
-                    </div>
-                    <div className="text-lg font-mono font-bold text-green-600">{formatCurrency(getRate('90792'))}</div>
-                 </div>
-                 <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-900">99205</div>
-                      <div className="text-xs text-slate-500">High Complexity Intake</div>
-                    </div>
-                    <div className="text-lg font-mono font-bold text-green-600">{formatCurrency(getRate('99205'))}</div>
-                 </div>
-                 <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-900">99204</div>
-                      <div className="text-xs text-slate-500">Moderate Complexity Intake</div>
-                    </div>
-                    <div className="text-lg font-mono font-bold text-green-600">{formatCurrency(getRate('99204'))}</div>
-                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Med Check Tab */}
-          {activeTab === 'med_check' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-bold text-slate-800">Med Check</h2>
-                <button
-                   onClick={() => setShowMDMWizard(!showMDMWizard)}
-                   className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 font-bold"
-                >
-                  {showMDMWizard ? 'Hide Wizard' : 'MDM Wizard'}
-                </button>
-              </div>
-
-              {showMDMWizard && (
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 space-y-3 mb-4">
-                  <div>
-                    <label className="block text-xs font-bold text-blue-800 mb-1">Problem Complexity</label>
-                    <div className="flex gap-2">
-                      {['low', 'moderate', 'high'].map((l) => (
-                        <button
-                          key={l}
-                          onClick={() => setProblemLevel(l)}
-                          className={`flex-1 py-1 px-2 rounded text-xs capitalize border ${problemLevel === l ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-800 border-blue-200'}`}
-                        >
-                          {l}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-blue-800 mb-1">Risk Level</label>
-                    <div className="flex gap-2">
-                      {['low', 'moderate', 'high'].map((l) => (
-                        <button
-                          key={l}
-                          onClick={() => setRiskLevel(l)}
-                          className={`flex-1 py-1 px-2 rounded text-xs capitalize border ${riskLevel === l ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-800 border-blue-200'}`}
-                        >
-                          {l}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="pt-2 border-t border-blue-200 flex justify-between items-center">
-                    <span className="text-sm font-bold text-blue-900">Recommended Code:</span>
-                    <span className="text-lg font-bold text-blue-700">{mdmCode}</span>
-                  </div>
-                </div>
-              )}
-
-              <div className={`p-4 rounded-lg border ${(!showMDMWizard || mdmCode === '99214') ? 'bg-green-50 border-green-200 ring-2 ring-green-500' : 'bg-slate-50 border-slate-200 opacity-50'}`}>
-                <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-900">99214</div>
-                      <div className="text-xs text-slate-500">Moderate Complexity (25 mins)</div>
-                    </div>
-                    <div className="text-lg font-mono font-bold text-green-600">{formatCurrency(getRate('99214'))}</div>
-                 </div>
-              </div>
-
-              <div className={`p-4 rounded-lg border ${(!showMDMWizard || mdmCode === '99213') ? 'bg-green-50 border-green-200 ring-2 ring-green-500' : 'bg-slate-50 border-slate-200 opacity-50'}`}>
-                <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-900">99213</div>
-                      <div className="text-xs text-slate-500">Low Complexity (15 mins)</div>
-                    </div>
-                    <div className="text-lg font-mono font-bold text-green-600">{formatCurrency(getRate('99213'))}</div>
-                 </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* Combo Visit Tab */}
-          {activeTab === 'combo' && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-slate-800">Combo Visit Calculator</h2>
-
-              <div className="space-y-3">
+            {showIntakeWizard && (
+              <div className="bg-slate-100 p-4 rounded-lg space-y-3 border border-slate-200 text-sm">
                 <div>
-                   <label className="block text-xs font-bold text-slate-500 mb-1">Medical Code (E/M)</label>
-                   <div className="flex gap-2">
-                     <button
-                        onClick={() => setComboMedical('99214')}
-                        className={`flex-1 py-2 px-3 rounded text-sm font-bold border ${comboMedical === '99214' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
-                     >
-                       99214
-                     </button>
-                     <button
-                        onClick={() => setComboMedical('99213')}
-                        className={`flex-1 py-2 px-3 rounded text-sm font-bold border ${comboMedical === '99213' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
-                     >
-                       99213
-                     </button>
-                   </div>
-                   <div className="text-right text-xs font-mono text-slate-400 mt-1">{formatCurrency(getRate(comboMedical))}</div>
+                  <span className="font-bold block mb-1">1. Did you do Therapy?</span>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setIntakeTherapy('yes')} className={`flex-1 py-1 border rounded ${intakeTherapy === 'yes' ? 'bg-blue-600 text-white' : 'bg-white'}`}>Yes</button>
+                    <button onClick={() => setIntakeTherapy('no')} className={`flex-1 py-1 border rounded ${intakeTherapy === 'no' ? 'bg-blue-600 text-white' : 'bg-white'}`}>No</button>
+                  </div>
                 </div>
-
                 <div>
-                   <label className="block text-xs font-bold text-slate-500 mb-1">Therapy Add-on</label>
-                   <select
-                     value={comboTherapy}
-                     onChange={(e) => setComboTherapy(e.target.value)}
-                     className="w-full bg-white border border-slate-300 text-slate-900 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                   >
-                     <option value="90833">90833 (16-37 mins)</option>
-                     <option value="90836">90836 (38-52 mins)</option>
-                     <option value="90838">90838 (53+ mins)</option>
-                   </select>
-                   <div className="text-right text-xs font-mono text-slate-400 mt-1">{formatCurrency(getRate(comboTherapy))}</div>
+                  <span className="font-bold block mb-1">2. Time Spent?</span>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setIntakeTime('standard')} className={`flex-1 py-1 border rounded ${intakeTime === 'standard' ? 'bg-blue-600 text-white' : 'bg-white'}`}>30-59m</button>
+                    <button onClick={() => setIntakeTime('long')} className={`flex-1 py-1 border rounded ${intakeTime === 'long' ? 'bg-blue-600 text-white' : 'bg-white'}`}>60m+</button>
+                  </div>
                 </div>
-              </div>
-
-              <div className="mt-6 p-4 bg-slate-900 text-white rounded-lg flex justify-between items-center">
                  <div>
-                    <div className="text-xs text-slate-400 uppercase tracking-wide font-bold">Total Revenue</div>
-                    <div className="text-xs text-slate-500">
-                      {comboMedical} + {comboTherapy}
-                    </div>
-                 </div>
-                 <div className="text-2xl font-mono font-bold text-green-400">{formatCurrency(getComboTotal())}</div>
+                  <span className="font-bold block mb-1">3. Complexity?</span>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setIntakeRisk('moderate')} className={`flex-1 py-1 border rounded ${intakeRisk === 'moderate' ? 'bg-blue-600 text-white' : 'bg-white'}`}>Moderate</button>
+                    <button onClick={() => setIntakeRisk('high')} className={`flex-1 py-1 border rounded ${intakeRisk === 'high' ? 'bg-blue-600 text-white' : 'bg-white'}`}>High (Crisis)</button>
+                  </div>
+                </div>
+                
+                {/* Wizard Recommendation */}
+                <div className="p-3 bg-yellow-100 border border-yellow-300 rounded text-yellow-900 mt-2">
+                  {intakeTherapy === 'yes' ? (
+                    <span><strong>Recommendation:</strong> Do NOT use 90792. You must use <strong>99204/99205 + Therapy Add-on</strong>.</span>
+                  ) : (
+                    <span>
+                      {selectedPayer === 'anthem' && intakeTime !== 'long' ? (
+                        <span><strong>Recommendation: 90792.</strong> Anthem pays more for this than 99204/5 unless you have very high complexity/time.</span>
+                      ) : (
+                        <span><strong>Recommendation:</strong> {intakeRisk === 'high' || intakeTime === 'long' ? '99205 (High Complexity)' : '90792 (Standard)'}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Code Cards with Copy Buttons */}
+            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex justify-between items-center group">
+              <div>
+                <div className="font-bold text-slate-800">90792</div>
+                <div className="text-sm text-slate-500">Standard Psych Intake</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('90792'))}</div>
+                <button onClick={() => copyNote('90792')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1">📋 Copy Note</button>
               </div>
             </div>
-          )}
 
-          {/* Psychotherapy Tab */}
-          {activeTab === 'psychotherapy' && (
-             <div className="space-y-4">
-               <h2 className="text-lg font-bold text-slate-800">Psychotherapy Suite</h2>
+            <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex justify-between items-center">
+              <div>
+                <div className="font-bold text-slate-800">99205</div>
+                <div className="text-sm text-slate-500">High Complexity Intake</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xl font-bold text-green-600">{formatCurrency(getRate('99205'))}</div>
+                <button onClick={() => copyNote('99205')} className="text-xs text-green-600 hover:text-green-800 underline mt-1">📋 Copy Note</button>
+              </div>
+            </div>
+          </div>
+        )}
 
-               <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-                 {['individual', 'family', 'crisis', 'group'].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setTherapyType(t)}
-                      className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap border ${therapyType === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
-                    >
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
-                    </button>
+        {/* TAB 2: MED CHECK (With MDM Wizard & Notes) */}
+        {activeTab === 'med_check' && (
+          <div className="p-6 space-y-4">
+            <h2 className="font-bold text-lg mb-2">Medication Management</h2>
+            <button onClick={() => setShowMDMWizard(!showMDMWizard)} className="w-full py-2 bg-indigo-100 text-indigo-700 font-bold rounded hover:bg-indigo-200 transition text-sm">
+              {showMDMWizard ? "Hide MDM Wizard" : "🧙‍♂️ Launch MDM Wizard"}
+            </button>
+
+            {showMDMWizard && (
+              <div className="bg-slate-100 p-4 rounded-lg space-y-4 border border-slate-200">
+                {/* (MDM Logic similar to previous version) */}
+                 <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Patient Status</label>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setProblemLevel('low')} className={`flex-1 py-2 text-xs rounded border ${problemLevel === 'low' ? 'bg-white border-blue-500 ring-1 ring-blue-500' : 'bg-slate-50'}`}>Stable</button>
+                    <button onClick={() => setProblemLevel('moderate')} className={`flex-1 py-2 text-xs rounded border ${problemLevel === 'moderate' ? 'bg-white border-blue-500 ring-1 ring-blue-500' : 'bg-slate-50'}`}>Worsening</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Risk</label>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setRiskLevel('low')} className={`flex-1 py-2 text-xs rounded border ${riskLevel === 'low' ? 'bg-white border-blue-500 ring-1 ring-blue-500' : 'bg-slate-50'}`}>No Meds</button>
+                    <button onClick={() => setRiskLevel('moderate')} className={`flex-1 py-2 text-xs rounded border ${riskLevel === 'moderate' ? 'bg-white border-blue-500 ring-1 ring-blue-500' : 'bg-slate-50'}`}>Prescription</button>
+                  </div>
+                </div>
+                <div className={`p-3 rounded text-sm border ${problemLevel === 'moderate' && riskLevel === 'moderate' ? 'bg-green-100 border-green-300 text-green-900' : 'bg-yellow-100 border-yellow-300 text-yellow-900'}`}>
+                  {problemLevel === 'moderate' && riskLevel === 'moderate' ? "✅ Recommended: 99214" : "⚠️ Recommended: 99213"}
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center">
+              <div><div className="font-bold">99213</div><div className="text-sm text-slate-500">Stable Refill</div></div>
+              <div className="text-right">
+                <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99213'))}</div>
+                <button onClick={() => copyNote('med_check_low')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1">📋 Copy Note</button>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center">
+              <div><div className="font-bold">99214</div><div className="text-sm text-slate-500">Complex/Adjust</div></div>
+              <div className="text-right">
+                <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99214'))}</div>
+                <button onClick={() => copyNote('med_check_mod')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1">📋 Copy Note</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: COMBO VISIT (With Note) */}
+        {activeTab === 'combo' && (
+          <div className="p-6 space-y-6">
+            <h2 className="font-bold text-lg mb-2">Combo Visit</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Medical</label>
+                <select value={comboMedical} onChange={(e) => setComboMedical(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
+                  <option value="99213">99213 (Low)</option>
+                  <option value="99214">99214 (Mod)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Therapy</label>
+                <select value={comboTherapy} onChange={(e) => setComboTherapy(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
+                  <option value="90833">16-37m (90833)</option>
+                  <option value="90836">38-52m (90836)</option>
+                  <option value="90838">53m+ (90838)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 text-white p-6 rounded-lg text-center shadow-lg relative">
+              <div className="text-sm text-slate-400 uppercase tracking-widest mb-1">Total Revenue</div>
+              <div className="text-4xl font-bold">{formatCurrency(getComboTotal())}</div>
+              <button onClick={() => copyNote('combo')} className="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center mx-auto">
+                📋 Copy Note for EMR
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: THERAPY SUITE */}
+        {activeTab === 'psychotherapy' && (
+          <div className="p-6 space-y-4">
+            <h2 className="font-bold text-lg mb-2">Therapy Suite</h2>
+            <div className="flex bg-slate-100 p-1 rounded-lg mb-4 text-xs font-bold overflow-x-auto">
+              {['individual', 'family', 'crisis', 'group'].map((type) => (
+                <button key={type} onClick={() => setTherapyType(type)} className={`flex-1 py-2 px-3 rounded capitalize ${therapyType === type ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>{type}</button>
+              ))}
+            </div>
+            
+            {therapyType === 'individual' && (
+               <div className="space-y-3">
+                 {[{c:'90832',l:'30m'},{c:'90834',l:'45m'},{c:'90837',l:'60m'}].map(i=>(
+                   <div key={i.c} className="p-3 bg-white border rounded flex justify-between"><span>{i.l} ({i.c})</span><span className="font-bold">{formatCurrency(getRate(i.c))}</span></div>
                  ))}
                </div>
-
+            )}
+            {therapyType === 'family' && (
                <div className="space-y-3">
-                 {therapyType === 'individual' && (
-                    <>
-                      {['90832', '90834', '90837'].map(code => (
-                         <div key={code} className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                            <div>
-                               <div className="font-bold text-slate-900">{code}</div>
-                               <div className="text-xs text-slate-500">
-                                 {code === '90832' ? '30 mins' : code === '90834' ? '45 mins' : '60 mins'}
-                               </div>
-                            </div>
-                            <div className="font-mono font-bold text-slate-700">{formatCurrency(getRate(code))}</div>
-                         </div>
-                      ))}
-                    </>
-                 )}
-                 {therapyType === 'family' && (
-                    <>
-                      {['90846', '90847'].map(code => (
-                         <div key={code} className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                            <div>
-                               <div className="font-bold text-slate-900">{code}</div>
-                               <div className="text-xs text-slate-500">
-                                 {code === '90846' ? 'Without Patient' : 'With Patient'}
-                               </div>
-                            </div>
-                            <div className="font-mono font-bold text-slate-700">{formatCurrency(getRate(code))}</div>
-                         </div>
-                      ))}
-                    </>
-                 )}
-                 {therapyType === 'crisis' && (
-                    <>
-                      {['90839', '90840'].map(code => (
-                         <div key={code} className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                            <div>
-                               <div className="font-bold text-slate-900">{code}</div>
-                               <div className="text-xs text-slate-500">
-                                 {code === '90839' ? 'First 60 mins' : 'Addl 30 mins'}
-                               </div>
-                            </div>
-                            <div className="font-mono font-bold text-slate-700">{formatCurrency(getRate(code))}</div>
-                         </div>
-                      ))}
-                    </>
-                 )}
-                 {therapyType === 'group' && (
-                    <>
-                      {['90853'].map(code => (
-                         <div key={code} className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
-                            <div>
-                               <div className="font-bold text-slate-900">{code}</div>
-                               <div className="text-xs text-slate-500">
-                                 Group Therapy
-                               </div>
-                            </div>
-                            <div className="font-mono font-bold text-slate-700">{formatCurrency(getRate(code))}</div>
-                         </div>
-                      ))}
-                    </>
-                 )}
+                 {[{c:'90846',l:'No Patient'},{c:'90847',l:'With Patient'}].map(i=>(
+                   <div key={i.c} className="p-3 bg-white border rounded flex justify-between"><span>{i.l} ({i.c})</span><span className="font-bold">{formatCurrency(getRate(i.c))}</span></div>
+                 ))}
                </div>
-             </div>
-          )}
+            )}
+            {therapyType === 'crisis' && (
+               <div className="space-y-3">
+                 {[{c:'90839',l:'First 60m'},{c:'90840',l:'Add\'l 30m'}].map(i=>(
+                   <div key={i.c} className="p-3 bg-white border border-red-200 rounded flex justify-between"><span>{i.l} ({i.c})</span><span className="font-bold text-red-600">{formatCurrency(getRate(i.c))}</span></div>
+                 ))}
+               </div>
+            )}
+             {therapyType === 'group' && (
+               <div className="p-3 bg-white border rounded flex justify-between"><span>Group (90853)</span><span className="font-bold">{formatCurrency(getRate('90853'))}</span></div>
+            )}
+          </div>
+        )}
 
-        </div>
       </div>
     </div>
   );
