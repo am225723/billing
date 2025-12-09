@@ -5,24 +5,29 @@ export interface Payer {
   rates: Record<string, number>;
 }
 
+// Placeholder rates for new Digital Health (G055x) and Caregiver Training (G053x) codes
+const newCodes = {
+  // Digital Mental Health Treatment (DMHT)
+  "G0552": 40.00, // Supply/Onboarding
+  "G0553": 65.00, // Monthly Treatment Mgmt, first 20 min
+  "G0554": 32.00, // Monthly Treatment Mgmt, each add'l 20 min
+  // Caregiver Training Services (CTS)
+  "G0539": 90.00, // Caregiver Training, initial 30 min
+  "G0540": 45.00, // Caregiver Training, each add'l 15 min
+};
+
 export const PAYERS: Record<string, Payer> = {
   aetna: {
     name: "Aetna",
     rates: {
-      // New Patient
       "90792": 143.00, "99205": 197.00, "99204": 156.00,
-      // Established / Med Check
       "99213": 88.00, "99214": 128.00,
-      // Add-on Therapy (Combo)
       "90833": 84.00, "90836": 123.00, "90838": 148.00, "90785": 14.00,
-      // Individual Therapy
       "90832": 65.00, "90834": 129.00, "90837": 157.00,
-      // Crisis
       "90839": 130.00, "90840": 63.00,
-      // Family
       "90846": 100.00, "90847": 126.00,
-      // Group
-      "90853": 44.00
+      "90853": 44.00,
+      ...newCodes // Add new DMHT/CTS codes
     }
   },
   anthem: {
@@ -34,7 +39,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 72.60, "90834": 115.50, "90837": 138.60,
       "90839": 167.20, "90840": 55.00,
       "90846": 115.50, "90847": 126.50,
-      "90853": 58.30
+      "90853": 58.30,
+      ...newCodes
     }
   },
   carelon: {
@@ -46,7 +52,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 67.03, "90834": 88.41, "90837": 130.34,
       "90839": 125.50, "90840": 62.18,
       "90846": 83.56, "90847": 87.56,
-      "90853": 23.67
+      "90853": 23.67,
+      ...newCodes
     }
   },
   cigna: {
@@ -58,7 +65,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 46.00, "90834": 71.00, "90837": 84.00,
       "90839": 94.00, "90840": 60.00,
       "90846": 70.00, "90847": 72.00,
-      "90853": 18.00
+      "90853": 18.00,
+      ...newCodes
     }
   },
   oscar: {
@@ -70,7 +78,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 75.27, "90834": 107.12, "90837": 145.72,
       "90839": 138.96, "90840": 69.48,
       "90846": 106.94, "90847": 98.43,
-      "90853": 26.06
+      "90853": 26.06,
+      ...newCodes
     }
   },
   oxford: {
@@ -82,7 +91,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 75.27, "90834": 107.12, "90837": 145.72,
       "90839": 138.96, "90840": 69.48,
       "90846": 106.94, "90847": 98.43,
-      "90853": 26.06
+      "90853": 26.06,
+      ...newCodes
     }
   },
   quest: {
@@ -94,7 +104,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 72.29, "90834": 95.38, "90837": 140.59,
       "90839": 135.49, "90840": 67.18,
       "90846": 99.72, "90847": 103.64,
-      "90853": 25.55
+      "90853": 25.55,
+      ...newCodes
     }
   },
   united: {
@@ -106,7 +117,8 @@ export const PAYERS: Record<string, Payer> = {
       "90832": 75.27, "90834": 107.12, "90837": 145.72,
       "90839": 138.96, "90840": 69.48,
       "90846": 106.94, "90847": 98.43,
-      "90853": 26.06
+      "90853": 26.06,
+      ...newCodes
     }
   }
 };
