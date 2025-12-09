@@ -1,9 +1,3 @@
-That makes perfect sense. To be fully compliant and get the most accurate reimbursement, the rate must match the time you actually spent.
-I've updated the New Patient tab to include a new selector that allows you to choose the exact Psychotherapy Add-on Code based on your time documentation. The Maximizer Total will now update dynamically based on your choice.
-🛠️ Updated app/page.tsx Code
-Copy and paste this entire block into app/page.tsx.
-This code adds the new state (newPtTherapyAddOn), updates the total calculation, and includes the time selector right in the New Patient tab.
-// app/page.tsx
 'use client';
 
 import { useState } from 'react';
