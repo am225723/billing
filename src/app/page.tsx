@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PAYERS } from './data';
+import { PAYERS } from '@/data/data';
 
 export default function BillingCommandCenter() {
   const [activeTab, setActiveTab] = useState('new_patient');
