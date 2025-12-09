@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PAYERS } from './data';
+import { PAYERS } from '@/data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
@@ -132,7 +132,7 @@ export default function BillingCommandCenter() {
              >
                 <option value="AF">AF - Psychiatrist (MD/DO)</option>
                 <option value="AH">AH - Clinical Psychologist (PhD)</option>
-                <option value="HO">HO - Master's Level (LCSW, LPC)</option>
+                <option value="HO">HO - Master&apos;s Level (LCSW, LPC)</option>
                 <option value="SA">SA - Nurse Practitioner (NP)</option>
              </select>
           </div>
@@ -412,7 +412,7 @@ export default function BillingCommandCenter() {
             {/* Caregiver Training Services (CTS) */}
             <div className="space-y-3">
                 <h3 className="font-bold text-md text-slate-700 border-b pb-1">Caregiver Training Services (CTS)</h3>
-                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient's condition (not relationship-focused like family therapy).</div>
+                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient&apos;s condition (not relationship-focused like family therapy).</div>
                 {[
                   { code: 'G0539', label: 'Initial 30 mins' },
                   { code: 'G0540', label: 'Add\'l 15 mins' },
