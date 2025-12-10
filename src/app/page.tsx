@@ -1,8 +1,8 @@
 // src/app/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import { PAYERS } from './data';
+import { useState } from 'react';
+import { PAYERS } from '@/data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
@@ -17,10 +17,8 @@ export default function BillingCommandCenter() {
   const [isTelehealth, setIsTelehealth] = useState(false);
 
   // --- STATE: New Patient Wizard ---
-  const [showIntakeWizard, setShowIntakeWizard] = useState(false);
   const [showMDMGuide, setShowMDMGuide] = useState(false); // New MDM Guide Toggle
   const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); // Default to 60m therapy
-  const [newPtMedicalLevel, setNewPtMedicalLevel] = useState('99205'); 
 
   // --- STATE: Med Check Wizard ---
   const [showMDMWizard, setShowMDMWizard] = useState(false);
@@ -105,13 +103,13 @@ export default function BillingCommandCenter() {
       const riskExample = emCode === '99205' ? 'severe risk/threat to life' : 'prescription management of moderate risk';
       const therapyMins = newPtTherapyAddOn === '90833' ? '16-37' : newPtTherapyAddOn === '90836' ? '38-52' : '53+';
       
-      text = `${commonPrefix} New Patient Combo (${emCode}-25${isTelehealth ? `-${modifier}` : ''} + ${newPtTherapyAddOn}). MDM: ${mdmLevel} complexity justified by [Problem Complexity] and [${riskExample}]. Separately identifiable psychotherapy (${therapyMins} mins) provided, distinct from medical management. Start/Stop time documented.`;
+      text = `${commonPrefix} New Patient Combo (${emCode}-25${isTelehealth ? `-${modifier}` : ''} + ${newPtTherapyAddOn}). MDM: ${mdmLevel} complexity justified by [Problem Complexity] and [${riskExample}]. Separately identifiable psychotherapy (${therapyMins} mins) provided, distinct from medical management. Start/Stop time documented. (Note: Therapy content separated from E/M in chart).`;
     } else if (type === 'med_check_mod') {
       text = `${commonPrefix} Follow-up visit (99214${isTelehealth ? `-${modifier}` : ''}). MDM: MODERATE. 1) Problem: [Worsening/New Problem]. 2) Risk: Prescription management performed (e.g., [Med Name] adjustment/review). Counseling provided on potential side effects.`;
     } else if (type === 'med_check_low') {
       text = `${commonPrefix} Follow-up visit (99213${isTelehealth ? `-${modifier}` : ''}). MDM: LOW. Patient stable. Current regimen continued. No new problems or side effects reported.`;
     } else if (type === 'combo') {
-      text = `${commonPrefix} Combo Visit (${comboMedical}-25${isTelehealth ? `-${modifier}` : ''} + ${comboTherapy}). Medical management provided for [Diagnosis]. Separately identifiable psychotherapy (${comboTherapy === '90833' ? '16-37' : comboTherapy === '90836' ? '38-52' : '53+'} mins) provided. Therapy distinct from medical work.`;
+      text = `${commonPrefix} Combo Visit (${comboMedical}-25${isTelehealth ? `-${modifier}` : ''} + ${comboTherapy}). Medical management provided for [Diagnosis]. Separately identifiable psychotherapy (${comboTherapy === '90833' ? '16-37' : comboTherapy === '90836' ? '38-52' : '53+'} mins) provided. Therapy distinct from medical work. (Note: Therapy content separated from E/M in chart).`;
     }
 
     navigator.clipboard.writeText(text); 
@@ -137,19 +135,21 @@ export default function BillingCommandCenter() {
           <div className="mb-4">
              <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Provider Licensure</label>
              <select 
+                aria-label="Provider Licensure"
                 value={licensureModifier}
                 onChange={(e) => setLicensureModifier(e.target.value as Licensure)}
                 className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
              >
                 <option value="AF">AF - Psychiatrist (MD/DO)</option>
                 <option value="AH">AH - Clinical Psychologist (PhD)</option>
-                <option value="HO">HO - Master's Level (LCSW, LPC)</option>
+                <option value="HO">HO - Master&apos;s Level (LCSW, LPC)</option>
                 <option value="SA">SA - Nurse Practitioner (NP)</option>
              </select>
           </div>
 
           <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Select Payer</label>
           <select 
+            aria-label="Select Payer"
             value={selectedPayer}
             onChange={(e) => setSelectedPayer(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -225,6 +225,9 @@ export default function BillingCommandCenter() {
                             </ul>
                         </div>
                     </div>
+                    <div className="mt-2 p-2 bg-yellow-50 text-yellow-800 border border-yellow-200 rounded">
+                        <strong>Billing Rule:</strong> If using Add-on Therapy codes, E/M level MUST be based on MDM, not Time.
+                    </div>
                     <button onClick={() => setShowMDMGuide(false)} className="w-full py-1 bg-slate-200 text-slate-600 rounded mt-2">Close Guide</button>
                 </div>
             )}
@@ -254,7 +257,7 @@ export default function BillingCommandCenter() {
               <div className="relative z-10">
                 <div className="font-bold text-orange-900">99204 + {newPtTherapyAddOn}</div>
                 <div className="text-xs text-orange-800">Moderate Intake + Therapy</div>
-                <div className="text-[10px] text-orange-600 mt-1 font-semibold italic">"Highly Profitable" for Moderate MDM</div>
+                <div className="text-[10px] text-orange-600 mt-1 font-semibold italic">&quot;Highly Profitable&quot; for Moderate MDM</div>
               </div>
               <div className="text-right relative z-10">
                 <div className="text-xl font-bold text-orange-700">{formatCurrency(getNewPatientComboTotal('99204', newPtTherapyAddOn))}</div>
@@ -268,7 +271,7 @@ export default function BillingCommandCenter() {
               <div className="relative z-10">
                 <div className="font-bold text-green-900">99205 + {newPtTherapyAddOn}</div>
                 <div className="text-xs text-green-800">High Intake + Therapy</div>
-                <div className="text-[10px] text-green-600 mt-1 font-semibold italic">Requires High MDM or 60+ min Total Time</div>
+                <div className="text-[10px] text-green-600 mt-1 font-semibold italic">Requires High MDM</div>
               </div>
               <div className="text-right relative z-10">
                 <div className="text-xl font-bold text-green-700">{formatCurrency(getNewPatientComboTotal('99205', newPtTherapyAddOn))}</div>
@@ -348,7 +351,7 @@ export default function BillingCommandCenter() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Medical (E/M)</label>
-                <select value={comboMedical} onChange={(e) => setComboMedical(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
+                <select aria-label="Medical (E/M)" value={comboMedical} onChange={(e) => setComboMedical(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
                   <option value="99213">99213 (Low)</option>
                   <option value="99214">99214 (Mod)</option>
                   <option value="99215">99215 (High)</option>
@@ -356,7 +359,7 @@ export default function BillingCommandCenter() {
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Therapy (Add-on)</label>
-                <select value={comboTherapy} onChange={(e) => setComboTherapy(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
+                <select aria-label="Therapy (Add-on)" value={comboTherapy} onChange={(e) => setComboTherapy(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
                   <option value="90833">16-37m (90833)</option>
                   <option value="90836">38-52m (90836)</option>
                   <option value="90838">53m+ (90838)</option>
@@ -424,7 +427,7 @@ export default function BillingCommandCenter() {
             {/* Caregiver Training Services (CTS) */}
             <div className="space-y-3">
                 <h3 className="font-bold text-md text-slate-700 border-b pb-1">Caregiver Training Services (CTS)</h3>
-                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient's condition (not relationship-focused like family therapy).</div>
+                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient&apos;s condition (not relationship-focused like family therapy).</div>
                 {[
                   { code: 'G0539', label: 'Initial 30 mins' },
                   { code: 'G0540', label: 'Add\'l 15 mins' },
