@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PAYERS } from '@/data/data';
+import { PAYERS } from './data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
@@ -17,8 +17,10 @@ export default function BillingCommandCenter() {
   const [isTelehealth, setIsTelehealth] = useState(false);
 
   // --- STATE: New Patient Wizard ---
-  const [showMDMGuide, setShowMDMGuide] = useState(false); // New MDM Guide Toggle
+  const [showIntakeWizard, setShowIntakeWizard] = useState(false);
+  const [showMDMGuide, setShowMDMGuide] = useState(false); 
   const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); // Default to 60m therapy
+  const [newPtMedicalLevel, setNewPtMedicalLevel] = useState('99205'); 
 
   // --- STATE: Med Check Wizard ---
   const [showMDMWizard, setShowMDMWizard] = useState(false);
@@ -90,26 +92,55 @@ export default function BillingCommandCenter() {
   };
   const { pos, modifier, alertText } = getTelehealthCompliance();
 
-  // --- FEATURE: Note Generator (Enhanced MDM) ---
+  // --- FEATURE: Note Generator (COMPLIANT) ---
   const copyNote = (type: string) => {
     let text = "";
     const commonPrefix = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}]`;
     
+    // Helper for Therapy Section (Per your PDF compliance guide)
+    const getTherapySection = (code: string) => {
+        const mins = code === '90833' ? '16-37' : code === '90836' ? '38-52' : '53+';
+        return `
+---
+**PSYCHOTHERAPY NOTE (Add-on ${code}):**
+* **Time:** [Start Time] - [End Time] (${mins} mins face-to-face)
+* **Identified Issues:** ...
+* **Intervention:** ...
+* **Treatment Plan/Goals:** ...
+(Therapy service is separate and distinct from the medical E/M service)`;
+    };
+
     if (type === '90792') {
-      text = `${commonPrefix} Psychiatric diagnostic evaluation with medical services (90792). Comprehensive history, mental status exam, and initial plan formulation completed. Medical decision making included prescription management and ordering of diagnostic studies.`;
+      text = `${commonPrefix} **Psychiatric Diagnostic Evaluation (90792)**
+Comprehensive history, mental status exam, and initial plan formulation completed. Medical decision making included prescription management and ordering of diagnostic studies.`;
+    
     } else if (type.startsWith('new_pt_combo')) {
       const emCode = type.includes('99205') ? '99205' : '99204';
       const mdmLevel = emCode === '99205' ? 'HIGH' : 'MODERATE';
       const riskExample = emCode === '99205' ? 'severe risk/threat to life' : 'prescription management of moderate risk';
-      const therapyMins = newPtTherapyAddOn === '90833' ? '16-37' : newPtTherapyAddOn === '90836' ? '38-52' : '53+';
       
-      text = `${commonPrefix} New Patient Combo (${emCode}-25${isTelehealth ? `-${modifier}` : ''} + ${newPtTherapyAddOn}). MDM: ${mdmLevel} complexity justified by [Problem Complexity] and [${riskExample}]. Separately identifiable psychotherapy (${therapyMins} mins) provided, distinct from medical management. Start/Stop time documented. (Note: Therapy content separated from E/M in chart).`;
+      text = `${commonPrefix} **New Patient Combo (${emCode}-25${isTelehealth ? `-${modifier}` : ''})**
+* **MDM:** ${mdmLevel} complexity.
+* **Justification:** [Problem Complexity] and [${riskExample}].
+* **E/M Service:** Medical assessment, history, and plan formulation.
+${getTherapySection(newPtTherapyAddOn)}`;
+
     } else if (type === 'med_check_mod') {
-      text = `${commonPrefix} Follow-up visit (99214${isTelehealth ? `-${modifier}` : ''}). MDM: MODERATE. 1) Problem: [Worsening/New Problem]. 2) Risk: Prescription management performed (e.g., [Med Name] adjustment/review). Counseling provided on potential side effects.`;
+      text = `${commonPrefix} **Follow-up Visit (99214${isTelehealth ? `-${modifier}` : ''})**
+* **MDM:** MODERATE
+* **Problem:** [Worsening/New Problem] or [2+ Stable Chronic Illnesses].
+* **Risk:** Prescription management performed (e.g., [Med Name] adjustment/review). Counseling provided on potential side effects.`;
+
     } else if (type === 'med_check_low') {
-      text = `${commonPrefix} Follow-up visit (99213${isTelehealth ? `-${modifier}` : ''}). MDM: LOW. Patient stable. Current regimen continued. No new problems or side effects reported.`;
+      text = `${commonPrefix} **Follow-up Visit (99213${isTelehealth ? `-${modifier}` : ''})**
+* **MDM:** LOW
+* **Status:** Patient stable. Current regimen continued. No new problems or side effects reported.`;
+
     } else if (type === 'combo') {
-      text = `${commonPrefix} Combo Visit (${comboMedical}-25${isTelehealth ? `-${modifier}` : ''} + ${comboTherapy}). Medical management provided for [Diagnosis]. Separately identifiable psychotherapy (${comboTherapy === '90833' ? '16-37' : comboTherapy === '90836' ? '38-52' : '53+'} mins) provided. Therapy distinct from medical work. (Note: Therapy content separated from E/M in chart).`;
+      text = `${commonPrefix} **Combo Visit (${comboMedical}-25${isTelehealth ? `-${modifier}` : ''})**
+* **E/M Service:** Medical management provided for [Diagnosis].
+* **MDM:** ${comboMedical === '99214' ? 'Moderate' : 'Low'}.
+${getTherapySection(comboTherapy)}`;
     }
 
     navigator.clipboard.writeText(text); 
@@ -135,21 +166,19 @@ export default function BillingCommandCenter() {
           <div className="mb-4">
              <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Provider Licensure</label>
              <select 
-                aria-label="Provider Licensure"
                 value={licensureModifier}
                 onChange={(e) => setLicensureModifier(e.target.value as Licensure)}
                 className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
              >
                 <option value="AF">AF - Psychiatrist (MD/DO)</option>
                 <option value="AH">AH - Clinical Psychologist (PhD)</option>
-                <option value="HO">HO - Master&apos;s Level (LCSW, LPC)</option>
+                <option value="HO">HO - Master's Level (LCSW, LPC)</option>
                 <option value="SA">SA - Nurse Practitioner (NP)</option>
              </select>
           </div>
 
           <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Select Payer</label>
           <select 
-            aria-label="Select Payer"
             value={selectedPayer}
             onChange={(e) => setSelectedPayer(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -257,7 +286,7 @@ export default function BillingCommandCenter() {
               <div className="relative z-10">
                 <div className="font-bold text-orange-900">99204 + {newPtTherapyAddOn}</div>
                 <div className="text-xs text-orange-800">Moderate Intake + Therapy</div>
-                <div className="text-[10px] text-orange-600 mt-1 font-semibold italic">&quot;Highly Profitable&quot; for Moderate MDM</div>
+                <div className="text-[10px] text-orange-600 mt-1 font-semibold italic">"Highly Profitable" for Moderate MDM</div>
               </div>
               <div className="text-right relative z-10">
                 <div className="text-xl font-bold text-orange-700">{formatCurrency(getNewPatientComboTotal('99204', newPtTherapyAddOn))}</div>
@@ -351,7 +380,7 @@ export default function BillingCommandCenter() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Medical (E/M)</label>
-                <select aria-label="Medical (E/M)" value={comboMedical} onChange={(e) => setComboMedical(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
+                <select value={comboMedical} onChange={(e) => setComboMedical(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
                   <option value="99213">99213 (Low)</option>
                   <option value="99214">99214 (Mod)</option>
                   <option value="99215">99215 (High)</option>
@@ -359,7 +388,7 @@ export default function BillingCommandCenter() {
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Therapy (Add-on)</label>
-                <select aria-label="Therapy (Add-on)" value={comboTherapy} onChange={(e) => setComboTherapy(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
+                <select value={comboTherapy} onChange={(e) => setComboTherapy(e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded">
                   <option value="90833">16-37m (90833)</option>
                   <option value="90836">38-52m (90836)</option>
                   <option value="90838">53m+ (90838)</option>
