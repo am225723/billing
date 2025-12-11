@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PAYERS } from './data';
+import { PAYERS } from '../data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
