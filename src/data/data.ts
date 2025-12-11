@@ -1,3 +1,4 @@
+// src/app/data.ts
 
 export interface Payer {
   name: string;
@@ -26,7 +27,7 @@ export const PAYERS: Record<string, Payer> = {
       "90839": 130.00, "90840": 63.00,
       "90846": 100.00, "90847": 126.00,
       "90853": 44.00,
-      ...newCodes // Add new DMHT/CTS codes
+      ...newCodes 
     }
   },
   anthem: {
