@@ -2,7 +2,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-// IMPORT FIXED: Points to src/data/data.ts
 import { PAYERS } from '../data/data';
 
 // --- TYPE DEFINITIONS ---
@@ -88,7 +87,7 @@ Analyze the provided Intake Forms (PDF/Images), Audio Files (Session recordings/
 `;
 
 interface ClinicalReport {
-  source?: 'Gemini' | 'Perplexity'; // To track which AI generated it
+  source?: 'Gemini' | 'Perplexity';
   patientName: string;
   dob: string;
   dateOfService: string;
@@ -183,12 +182,9 @@ export default function BillingCommandCenter() {
   // --- STATE: AI Assistant ---
   const [aiInput, setAiInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  
-  // Reports
   const [geminiReport, setGeminiReport] = useState<ClinicalReport | null>(null);
   const [perplexityReport, setPerplexityReport] = useState<ClinicalReport | null>(null);
   const [activeReportView, setActiveReportView] = useState<'Gemini' | 'Perplexity'>('Gemini');
-
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [processingSource, setProcessingSource] = useState<'Gemini' | 'Perplexity' | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -222,11 +218,13 @@ export default function BillingCommandCenter() {
   // --- REVENUE CALCULATORS ---
   const getInteractiveRate = () => interactiveComplexity ? getRate('90785') : 0;
 
-  const getNewPatientComboTotal = (emCode: string) => {
+  // Renamed to match usage in JSX
+  const calculateNewPatientTotal = (emCode: string) => {
     return getRate(emCode) + getRate(newPtTherapyAddOn) + getInteractiveRate();
   };
 
-  const getComboTotal = () => {
+  // Renamed to match usage in JSX
+  const calculateComboTotal = () => {
     return getRate(comboMedical) + getRate(comboTherapy) + getInteractiveRate();
   };
 
@@ -446,8 +444,8 @@ ${getTherapySection(comboTherapy)}`;
 
   // --- PERPLEXITY HANDLER ---
   const generateWithPerplexity = async () => {
-    if (!aiInput.trim()) {
-        showToast('⚠️ Text/Notes required for Perplexity (Files ignored)');
+    if (!aiInput.trim() && attachments.length === 0) {
+        showToast('⚠️ Input needed');
         return;
     }
     if (!perplexityKey) {
@@ -459,6 +457,11 @@ ${getTherapySection(comboTherapy)}`;
     setProcessingSource('Perplexity');
 
     try {
+        let userContent = aiInput || "Please analyze the provided context.";
+        if (attachments.length > 0) {
+            userContent += "\n\n[System Note: User has attached files (audio/pdf/image) which you should process if your model capabilities allow, or infer context from available text metadata: " + attachments.map(a => a.name).join(', ') + "]";
+        }
+
         const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: {
@@ -469,7 +472,7 @@ ${getTherapySection(comboTherapy)}`;
                 model: 'llama-3.1-sonar-large-128k-online',
                 messages: [
                     { role: 'system', content: JULES_SYSTEM_PROMPT + "\n IMPORTANT: Return ONLY JSON." },
-                    { role: 'user', content: aiInput }
+                    { role: 'user', content: userContent }
                 ],
             })
         });
@@ -479,7 +482,6 @@ ${getTherapySection(comboTherapy)}`;
 
         const text = data.choices?.[0]?.message?.content;
         
-        // Clean markdown code blocks if Perplexity includes them
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
         if (cleanText) {
@@ -700,7 +702,7 @@ ${getTherapySection(comboTherapy)}`;
 
             <div className="bg-slate-900 text-white p-6 rounded-lg text-center shadow-lg relative">
               <div className="text-sm text-slate-400 uppercase tracking-widest mb-1">Total Revenue</div>
-              <div className="text-4xl font-bold">{formatCurrency(getComboTotal())}</div>
+              <div className="text-4xl font-bold">{formatCurrency(calculateComboTotal())}</div>
               <button onClick={() => copyNote('combo')} className="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center mx-auto">
                 📋 Copy Note for EMR
               </button>
@@ -942,4 +944,4 @@ ${getTherapySection(comboTherapy)}`;
       </div>
     </div>
   );
-}
+                      }
