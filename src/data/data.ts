@@ -1,4 +1,4 @@
-// src/app/data.ts
+// src/data/data.ts
 
 export interface Payer {
   name: string;
