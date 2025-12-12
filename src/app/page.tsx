@@ -2,7 +2,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { PAYERS } from './data';
+// Corrected import path based on your file structure
+import { PAYERS } from '../data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
