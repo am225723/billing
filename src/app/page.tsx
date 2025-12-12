@@ -7,7 +7,7 @@ import { PAYERS } from '../data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
-type Tab = 'new_patient' | 'med_check' | 'combo' | 'treatment_plan' | 'psychotherapy' | 'ai_assistant' | 'additional_revenue';
+type Tab = 'new_patient' | 'med_check' | 'combo' | 'ai_assistant' | 'additional_revenue';
 
 interface Attachment {
   name: string;
@@ -88,7 +88,7 @@ Analyze the provided Intake Forms (PDF/Images), Audio Files (Session recordings/
 `;
 
 interface ClinicalReport {
-  source?: 'Gemini' | 'Perplexity'; // To track which AI generated it
+  source?: 'Gemini' | 'Perplexity'; 
   patientName: string;
   dob: string;
   dateOfService: string;
@@ -164,22 +164,31 @@ export default function BillingCommandCenter() {
   const [isTelehealth, setIsTelehealth] = useState(false);
   const [diagnosis, setDiagnosis] = useState(''); 
 
+  // --- STATE: New Patient Wizard ---
+  const [showMDMGuide, setShowMDMGuide] = useState(false); 
+  const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); 
+
+  // --- STATE: Med Check Wizard ---
+  const [showMDMWizard, setShowMDMWizard] = useState(false);
+  const [problemLevel, setProblemLevel] = useState('low');
+  const [riskLevel, setRiskLevel] = useState('low');
+
+  // --- STATE: Combo Visit ---
+  const [comboMedical, setComboMedical] = useState('99214');
+  const [comboTherapy, setComboTherapy] = useState('90833');
+
   // --- STATE: Add-ons ---
   const [interactiveComplexity, setInteractiveComplexity] = useState(false);
 
   // --- STATE: AI Assistant ---
   const [aiInput, setAiInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  
-  // Reports
   const [geminiReport, setGeminiReport] = useState<ClinicalReport | null>(null);
   const [perplexityReport, setPerplexityReport] = useState<ClinicalReport | null>(null);
   const [activeReportView, setActiveReportView] = useState<'Gemini' | 'Perplexity'>('Gemini');
-
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [processingSource, setProcessingSource] = useState<'Gemini' | 'Perplexity' | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  // Default API Key set
   const [perplexityKey, setPerplexityKey] = useState('Pplx-GemdHAnRW0DmdbTkQXPVEKuG6dvp8ulzil1lrBJ7UJPJPcVi');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -203,51 +212,106 @@ export default function BillingCommandCenter() {
     return payer?.rates[code] || 0;
   };
 
-  // --- REVENUE CALCULATORS ---
   const getInteractiveRate = () => interactiveComplexity ? getRate('90785') : 0;
 
-  const getComboTotal = () => {
-    const med = getRate('99213'); // Just using base logic for now, component has specific state
-    // Note: This function is a helper, but inside the render we use specific states.
-    // Let's rely on the direct calls inside JSX for the "Combo" tab.
-    return 0; 
+  const getNewPatientComboTotal = (emCode: string) => {
+    return getRate(emCode) + getRate(newPtTherapyAddOn) + getInteractiveRate();
   };
 
-  // --- STATE: Combo Visit specific ---
-  const [comboMedical, setComboMedical] = useState('99214');
-  const [comboTherapy, setComboTherapy] = useState('90833');
-
-  const calculateComboTotal = () => {
-      return getRate(comboMedical) + getRate(comboTherapy) + getInteractiveRate();
-  }
-
-  // --- STATE: New Patient Wizard ---
-  const [showMDMGuide, setShowMDMGuide] = useState(false); 
-  const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); 
-  
-  const calculateNewPatientTotal = (emCode: string) => {
-      return getRate(emCode) + getRate(newPtTherapyAddOn) + getInteractiveRate();
-  }
-
-  // --- STATE: Med Check Wizard ---
-  const [showMDMWizard, setShowMDMWizard] = useState(false);
-  const [problemLevel, setProblemLevel] = useState('low');
-  const [riskLevel, setRiskLevel] = useState('low');
-  
-  // --- STATE: Therapy Suite ---
-  const [therapyType, setTherapyType] = useState('individual');
-
+  const getComboTotal = () => {
+    return getRate(comboMedical) + getRate(comboTherapy) + getInteractiveRate();
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // --- TELEHEALTH LOGIC ---
+  const getTelehealthCompliance = () => {
+    const payerName = PAYERS[selectedPayer as keyof typeof PAYERS]?.name.toLowerCase() || '';
+    
+    let pos = "11 (Office)";
+    let modifier = "";
+    let alertText = "";
+
+    if (isTelehealth) {
+        if (payerName.includes('medicare')) {
+            pos = "10 (Patient Home)";
+            modifier = "95 (or 93 for Audio-Only)";
+            alertText = "Medicare Note: Use POS 10 for higher reimbursement rate.";
+        } else if (payerName.includes('blue cross') || payerName.includes('anthem')) {
+            pos = "10 or 11 (Check State)";
+            modifier = "95 / GT";
+            alertText = "BCBS Note: Strict documentation required (start/stop times).";
+        } else if (payerName.includes('united') || payerName.includes('optum')) {
+            pos = "02 (Other Telehealth)";
+            modifier = "95 (Informational)";
+            alertText = "UHC Note: UHC often prefers POS 02.";
+        } else {
+            pos = "11 (Office/Telehealth)";
+            modifier = "95";
+            alertText = "General Telehealth: Use Modifier 95.";
+        }
+    }
+    
+    return { pos, modifier, alertText };
+  };
+  const { pos, modifier, alertText } = getTelehealthCompliance();
+
+  const copyNote = (type: string) => {
+    let text = "";
+    const commonPrefix = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}] ${diagnosis ? `[Dx: ${diagnosis}]` : ''}`;
+    const interactiveText = interactiveComplexity ? "\n* **Interactive Complexity (+90785):** Communication difficult due to [anxiety/reactivity/caregiver interference]. Specific interventions used to manage this factor." : "";
+    
+    const getTherapySection = (code: string) => {
+        const mins = code === '90833' ? '16-37' : code === '90836' ? '38-52' : '53+';
+        return `
+---
+**PSYCHOTHERAPY NOTE (Add-on ${code}):**
+* **Time:** [Start Time] - [End Time] (${mins} mins face-to-face)
+* **Identified Issues:** ...
+* **Intervention:** ...
+* **Treatment Plan/Goals:** ...
+(Therapy service is separate and distinct from the medical E/M service)${interactiveText}`;
+    };
+
+    if (type === '90792') {
+      text = `${commonPrefix} **Psychiatric Diagnostic Evaluation (90792)**
+Comprehensive history, mental status exam, and initial plan formulation completed. Medical decision making included prescription management and ordering of diagnostic studies.`;
+    } else if (type.startsWith('new_pt_combo')) {
+      const emCode = type.includes('99205') ? '99205' : '99204';
+      const mdmLevel = emCode === '99205' ? 'HIGH' : 'MODERATE';
+      const riskExample = emCode === '99205' ? 'severe risk/threat to life' : 'prescription management of moderate risk';
+      text = `${commonPrefix} **New Patient Combo (${emCode}-25${isTelehealth ? `-${modifier}` : ''})**
+* **MDM:** ${mdmLevel} complexity.
+* **Justification:** [Problem Complexity] and [${riskExample}].
+* **E/M Service:** Medical assessment, history, and plan formulation.
+${getTherapySection(newPtTherapyAddOn)}`;
+    } else if (type === 'med_check_mod') {
+      text = `${commonPrefix} **Follow-up Visit (99214${isTelehealth ? `-${modifier}` : ''})**
+* **MDM:** MODERATE
+* **Problem:** [Worsening/New Problem] or [2+ Stable Chronic Illnesses].
+* **Risk:** Prescription management performed (e.g., [Med Name] adjustment/review). Counseling provided on potential side effects.${interactiveText}`;
+    } else if (type === 'med_check_low') {
+      text = `${commonPrefix} **Follow-up Visit (99213${isTelehealth ? `-${modifier}` : ''})**
+* **MDM:** LOW
+* **Status:** Patient stable. Current regimen continued. No new problems or side effects reported.`;
+    } else if (type === 'combo') {
+      text = `${commonPrefix} **Combo Visit (${comboMedical}-25${isTelehealth ? `-${modifier}` : ''})**
+* **E/M Service:** Medical management provided for [Diagnosis].
+* **MDM:** ${comboMedical === '99214' ? 'Moderate' : 'Low'}.
+${getTherapySection(comboTherapy)}`;
+    }
+
+    navigator.clipboard.writeText(text); 
+    showToast(`📋 ${type.replace('_', ' ')} note copied!`);
+  };
+
   // --- AI ASSISTANT FUNCTIONS ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       Array.from(e.target.files).forEach(file => {
-        // Handle PDF, Images, and Audio as base64 attachments
         if (file.type === 'application/pdf' || file.type.startsWith('image/') || file.type.startsWith('audio/')) {
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -261,7 +325,6 @@ export default function BillingCommandCenter() {
             };
             reader.readAsDataURL(file);
         } else {
-            // Handle text files as text context
             const reader = new FileReader();
             reader.onload = (event) => {
                 if (event.target?.result) {
@@ -284,23 +347,19 @@ export default function BillingCommandCenter() {
       alert("Speech recognition is not supported in this browser. Please use Chrome.");
       return;
     }
-
     if (isRecording) {
       setIsRecording(false);
       return;
     }
-
     const SpeechRecognition = (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
-
     recognition.onstart = () => {
       setIsRecording(true);
       showToast('🎤 Listening...');
     };
-
     recognition.onresult = (event: any) => {
       let finalTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -312,26 +371,21 @@ export default function BillingCommandCenter() {
           setAiInput(prev => prev + " " + finalTranscript);
       }
     };
-
     recognition.onend = () => {
       setIsRecording(false);
       showToast('🛑 Recording stopped');
     };
-
     recognition.start();
   };
 
-  // --- GEMINI HANDLER ---
   const generateWithGemini = async () => {
     if (!aiInput.trim() && attachments.length === 0) {
         showToast('⚠️ Input needed');
         return;
     }
-    
     setIsAiProcessing(true);
     setProcessingSource('Gemini');
-    const apiKey = ""; // Runtime provided for Gemini
-    
+    const apiKey = ""; 
     try {
         const parts: any[] = [{ text: aiInput || "Analyze the attached documents." }];
         attachments.forEach(att => {
@@ -339,7 +393,6 @@ export default function BillingCommandCenter() {
                 inlineData: { mimeType: att.mimeType, data: att.data }
             });
         });
-
         const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
             {
@@ -352,10 +405,8 @@ export default function BillingCommandCenter() {
                 })
             }
         );
-        
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
-
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
             const parsed = JSON.parse(text);
@@ -375,7 +426,6 @@ export default function BillingCommandCenter() {
     }
   };
 
-  // --- PERPLEXITY HANDLER ---
   const generateWithPerplexity = async () => {
     if (!aiInput.trim()) {
         showToast('⚠️ Text/Notes required for Perplexity (Files ignored)');
@@ -385,10 +435,8 @@ export default function BillingCommandCenter() {
         showToast('⚠️ Perplexity API Key required');
         return;
     }
-
     setIsAiProcessing(true);
     setProcessingSource('Perplexity');
-
     try {
         const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
@@ -404,15 +452,10 @@ export default function BillingCommandCenter() {
                 ],
             })
         });
-
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
-
         const text = data.choices?.[0]?.message?.content;
-        
-        // Clean markdown code blocks if Perplexity includes them
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
         if (cleanText) {
             const parsed = JSON.parse(cleanText);
             parsed.source = 'Perplexity';
@@ -422,7 +465,6 @@ export default function BillingCommandCenter() {
         } else {
             throw new Error("No output");
         }
-
     } catch (e: any) {
         console.error(e);
         showToast(`❌ Perplexity Error: ${e.message}`);
@@ -434,15 +476,6 @@ export default function BillingCommandCenter() {
 
   const printReport = () => {
     window.print();
-  };
-
-  // --- NOTE GENERATOR ---
-  const copyNote = (type: string) => {
-    let text = "";
-    // Note: simplified logic here, normally would use current state values
-    text = `Note copied for ${type}`;
-    navigator.clipboard.writeText(text); 
-    showToast(`📋 ${type} note copied!`);
   };
 
   const currentReport = activeReportView === 'Gemini' ? geminiReport : perplexityReport;
@@ -476,7 +509,6 @@ export default function BillingCommandCenter() {
           <h1 className="text-xl font-bold mb-1">Billing Command Center</h1>
           <p className="text-slate-400 text-sm mb-4">Integrative Psychiatry • Dr. Zelisko</p>
           
-          {/* Header Controls */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div>
                  <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Licensure</label>
@@ -507,6 +539,27 @@ export default function BillingCommandCenter() {
             ))}
           </select>
         </div>
+        
+        {/* Telehealth Compliance Panel */}
+        <div className="p-4 bg-blue-50 border-b border-blue-200">
+            <div className="flex justify-between items-center mb-2">
+                <span className="font-bold text-sm text-blue-800">Telehealth Compliance</span>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                    <span className="text-xs text-blue-700 font-medium">Remote?</span>
+                    <div className={`relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in ${isTelehealth ? 'bg-blue-600' : 'bg-slate-300'} rounded-full`}>
+                        <input type="checkbox" name="toggle" id="toggle" checked={isTelehealth} onChange={() => setIsTelehealth(!isTelehealth)} className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                        <label htmlFor="toggle" className="toggle-label block overflow-hidden h-6 rounded-full cursor-pointer"></label>
+                    </div>
+                </label>
+            </div>
+            {isTelehealth && (
+                <div className="text-xs space-y-1 text-slate-700">
+                    <p>POS Code: <strong className="text-blue-600">{pos}</strong></p>
+                    <p>Required Modifiers: <strong className="text-blue-600">{modifier}</strong> (on CPT code)</p>
+                    <p className="font-medium text-red-600">{alertText}</p>
+                </div>
+            )}
+        </div>
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide overflow-x-auto no-print">
@@ -524,7 +577,34 @@ export default function BillingCommandCenter() {
         {/* TAB 1: NEW PATIENT */}
         {activeTab === 'new_patient' && (
           <div className="p-6 space-y-4">
-            <h2 className="font-bold text-lg">New Patient Intake</h2>
+            <div className="flex justify-between items-center">
+                <h2 className="font-bold text-lg">New Patient Intake</h2>
+                <button onClick={() => setShowMDMGuide(!showMDMGuide)} className="text-xs text-blue-600 underline font-bold">📖 MDM Guide</button>
+            </div>
+            
+            {showMDMGuide && (
+                <div className="bg-slate-50 border border-slate-300 p-4 rounded-lg text-xs space-y-3 shadow-inner">
+                    <h3 className="font-bold text-slate-800 border-b pb-1">Defining E/M Complexity</h3>
+                    <div className="grid grid-cols-1 gap-2">
+                        <div className="bg-white p-2 rounded border border-orange-200">
+                            <div className="font-bold text-orange-700 mb-1">MODERATE (99204)</div>
+                            <ul className="list-disc pl-3 space-y-1 text-slate-600">
+                                <li>1 Acute illness OR 2 stable chronic illnesses.</li>
+                                <li>Prescription management.</li>
+                            </ul>
+                        </div>
+                        <div className="bg-white p-2 rounded border border-green-200">
+                            <div className="font-bold text-green-700 mb-1">HIGH (99205)</div>
+                            <ul className="list-disc pl-3 space-y-1 text-slate-600">
+                                <li>Chronic w/ exacerbation OR threat to life.</li>
+                                <li>High-risk meds (Lithium/Clozapine) or Hospitalization decision.</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <button onClick={() => setShowMDMGuide(false)} className="w-full py-1 bg-slate-200 text-slate-600 rounded mt-2">Close Guide</button>
+                </div>
+            )}
+            
             <div className="bg-slate-100 p-4 rounded-lg border border-slate-200">
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Psychotherapy Time</label>
                 <select 
@@ -539,25 +619,30 @@ export default function BillingCommandCenter() {
                 <div className="mt-3 flex items-center space-x-2">
                     <input 
                         type="checkbox" 
+                        id="newPtInt" 
                         checked={interactiveComplexity} 
                         onChange={(e) => setInteractiveComplexity(e.target.checked)}
                         className="w-4 h-4 text-blue-600 rounded"
                     />
-                    <label className="text-sm text-slate-700 font-medium">Add Interactive Complexity (+90785)</label>
+                    <label htmlFor="newPtInt" className="text-sm text-slate-700 font-medium">Add Interactive Complexity (+90785)</label>
                 </div>
             </div>
 
+            <h3 className="font-bold text-md text-slate-700 border-b pb-1 mt-6">Profitability Strategies</h3>
+
+            {/* 99204 Combo Card */}
             <div className="p-4 rounded-lg border border-orange-300 bg-orange-50 flex justify-between items-center group relative overflow-hidden">
               <div className="relative z-10">
                 <div className="font-bold text-orange-900">99204 + {newPtTherapyAddOn} {interactiveComplexity && '+ 90785'}</div>
                 <div className="text-xs text-orange-800">Moderate Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-orange-700">{formatCurrency(calculateNewPatientTotal('99204'))}</div>
+                <div className="text-xl font-bold text-orange-700">{formatCurrency(getNewPatientComboTotal('99204'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99204')} className="text-xs text-orange-700 hover:text-orange-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
 
+            {/* 99205 Combo Card */}
             <div className="p-4 rounded-lg border border-green-600 bg-green-50 flex justify-between items-center group relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-green-200 text-green-800 text-[10px] px-2 py-0.5 rounded-bl font-bold">MAXIMIZER</div>
               <div className="relative z-10">
@@ -565,10 +650,24 @@ export default function BillingCommandCenter() {
                 <div className="text-xs text-green-800">High Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-green-700">{formatCurrency(calculateNewPatientTotal('99205'))}</div>
+                <div className="text-xl font-bold text-green-700">{formatCurrency(getNewPatientComboTotal('99205'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99205')} className="text-xs text-green-700 hover:text-green-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
+
+            <div className="mt-6 pt-4 border-t border-slate-200">
+                <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex justify-between items-center group">
+                <div>
+                    <div className="font-bold text-slate-800">90792</div>
+                    <div className="text-xs text-slate-500">Standard Intake (No Therapy Add-on)</div>
+                </div>
+                <div className="text-right">
+                    <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('90792'))}</div>
+                    <button onClick={() => copyNote('90792')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
+                </div>
+                </div>
+            </div>
+            
           </div>
         )}
 
@@ -576,14 +675,41 @@ export default function BillingCommandCenter() {
         {activeTab === 'med_check' && (
           <div className="p-6 space-y-4">
             <h2 className="font-bold text-lg mb-2">Medication Management (E/M Only)</h2>
+            <button onClick={() => setShowMDMWizard(!showMDMWizard)} className="w-full py-2 bg-indigo-100 text-indigo-700 font-bold rounded hover:bg-indigo-200 transition text-sm">
+              {showMDMWizard ? "Hide MDM Wizard" : "🧙‍♂️ Launch MDM Wizard"}
+            </button>
+
+            {showMDMWizard && (
+              <div className="bg-slate-100 p-4 rounded-lg space-y-4 border border-slate-200">
+                 <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setProblemLevel('low')} className={`flex-1 py-2 text-xs rounded border ${problemLevel === 'low' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>Stable</button>
+                    <button onClick={() => setProblemLevel('moderate')} className={`flex-1 py-2 text-xs rounded border ${problemLevel === 'moderate' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>Worsening</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Risk</label>
+                  <div className="flex space-x-2">
+                    <button onClick={() => setRiskLevel('low')} className={`flex-1 py-2 text-xs rounded border ${riskLevel === 'low' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>No Meds</button>
+                    <button onClick={() => setRiskLevel('moderate')} className={`flex-1 py-2 text-xs rounded border ${riskLevel === 'moderate' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>Prescription</button>
+                  </div>
+                </div>
+                <div className={`p-3 rounded text-sm border ${problemLevel === 'moderate' && riskLevel === 'moderate' ? 'bg-green-100 border-green-300 text-green-900' : 'bg-yellow-100 border-yellow-300 text-yellow-900'}`}>
+                  {problemLevel === 'moderate' && riskLevel === 'moderate' ? "✅ Recommended: 99214" : "⚠️ Recommended: 99213"}
+                </div>
+              </div>
+            )}
+            
              <div className="flex items-center space-x-2 mb-4">
                     <input 
                         type="checkbox" 
+                        id="medCheckInt" 
                         checked={interactiveComplexity} 
                         onChange={(e) => setInteractiveComplexity(e.target.checked)}
                         className="w-4 h-4 text-blue-600 rounded"
                     />
-                    <label className="text-sm text-slate-700">Add Interactive Complexity (+90785)</label>
+                    <label htmlFor="medCheckInt" className="text-sm text-slate-700">Add Interactive Complexity (+90785)</label>
             </div>
 
             <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center">
@@ -630,16 +756,17 @@ export default function BillingCommandCenter() {
             <div className="flex items-center space-x-2 bg-blue-50 p-3 rounded border border-blue-100">
                 <input 
                     type="checkbox" 
+                    id="comboInt" 
                     checked={interactiveComplexity} 
                     onChange={(e) => setInteractiveComplexity(e.target.checked)}
                     className="w-4 h-4 text-blue-600 rounded"
                 />
-                <label className="text-sm text-slate-700 font-bold">Add Interactive Complexity (+90785)</label>
+                <label htmlFor="comboInt" className="text-sm text-slate-700 font-bold">Add Interactive Complexity (+90785)</label>
             </div>
 
             <div className="bg-slate-900 text-white p-6 rounded-lg text-center shadow-lg relative">
               <div className="text-sm text-slate-400 uppercase tracking-widest mb-1">Total Revenue</div>
-              <div className="text-4xl font-bold">{formatCurrency(calculateComboTotal())}</div>
+              <div className="text-4xl font-bold">{formatCurrency(getComboTotal())}</div>
               <button onClick={() => copyNote('combo')} className="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center mx-auto">
                 📋 Copy Note for EMR
               </button>
@@ -647,9 +774,40 @@ export default function BillingCommandCenter() {
           </div>
         )}
         
-        {/* ADD REVENUE TAB PLACEHOLDER */}
+        {/* ADD REVENUE TAB */}
         {activeTab === 'additional_revenue' && (
-             <div className="p-6 text-center text-slate-500 text-sm no-print">Revenue Opps (G0552, G0539)</div>
+          <div className="p-6 space-y-6">
+            <h2 className="font-bold text-lg mb-4">Additional Revenue Opportunities</h2>
+            
+            <div className="space-y-3">
+                <h3 className="font-bold text-md text-slate-700 border-b pb-1">Caregiver Training Services (CTS)</h3>
+                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient's condition (not relationship-focused like family therapy).</div>
+                {[
+                  { code: 'G0539', label: 'Initial 30 mins' },
+                  { code: 'G0540', label: 'Add\'l 15 mins' },
+                ].map((item) => (
+                  <div key={item.code} className="p-3 rounded border border-slate-200 bg-white flex justify-between items-center">
+                    <span className="font-medium text-slate-700">{item.label} <span className="text-slate-400 text-xs">({item.code})</span></span>
+                    <span className="font-bold text-green-600">{formatCurrency(getRate(item.code))}</span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="space-y-3">
+                <h3 className="font-bold text-md text-slate-700 border-b pb-1">Digital Health Management (DMHT)</h3>
+                <div className="text-xs text-red-600 mb-2">WARNING: Only for FDA-cleared apps (e.g., Somryst). Billing for common apps is fraud.</div>
+                {[
+                  { code: 'G0552', label: 'Device Supply/Onboarding' },
+                  { code: 'G0553', label: 'Monthly Mgmt (First 20m)' },
+                  { code: 'G0554', label: 'Monthly Mgmt (Add\'l 20m)' },
+                ].map((item) => (
+                  <div key={item.code} className="p-3 rounded border border-slate-200 bg-white flex justify-between items-center">
+                    <span className="font-medium text-slate-700">{item.label} <span className="text-slate-400 text-xs">({item.code})</span></span>
+                    <span className="font-bold text-green-600">{formatCurrency(getRate(item.code))}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
         )}
 
         {/* TAB 6: AI ASSISTANT (JULES) */}
