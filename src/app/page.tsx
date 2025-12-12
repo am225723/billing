@@ -7,7 +7,7 @@ import { PAYERS } from '../data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
-type Tab = 'new_patient' | 'med_check' | 'combo' | 'ai_assistant' | 'additional_revenue';
+type Tab = 'new_patient' | 'med_check' | 'combo' | 'treatment_plan' | 'psychotherapy' | 'ai_assistant' | 'additional_revenue';
 
 interface Attachment {
   name: string;
@@ -88,7 +88,7 @@ Analyze the provided Intake Forms (PDF/Images), Audio Files (Session recordings/
 `;
 
 interface ClinicalReport {
-  source?: 'Gemini' | 'Perplexity'; 
+  source?: 'Gemini' | 'Perplexity'; // To track which AI generated it
   patientName: string;
   dob: string;
   dateOfService: string;
@@ -183,13 +183,20 @@ export default function BillingCommandCenter() {
   // --- STATE: AI Assistant ---
   const [aiInput, setAiInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  
+  // Reports
   const [geminiReport, setGeminiReport] = useState<ClinicalReport | null>(null);
   const [perplexityReport, setPerplexityReport] = useState<ClinicalReport | null>(null);
   const [activeReportView, setActiveReportView] = useState<'Gemini' | 'Perplexity'>('Gemini');
+
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [processingSource, setProcessingSource] = useState<'Gemini' | 'Perplexity' | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  
+  // API Keys (Pre-filled)
   const [perplexityKey, setPerplexityKey] = useState('Pplx-GemdHAnRW0DmdbTkQXPVEKuG6dvp8ulzil1lrBJ7UJPJPcVi');
+  const [geminiKey, setGeminiKey] = useState('AIzaSyClIsPS_apaSc-8wiIsVlCabudhbwAk3MI');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- STATE: UI Feedback ---
@@ -212,6 +219,7 @@ export default function BillingCommandCenter() {
     return payer?.rates[code] || 0;
   };
 
+  // --- REVENUE CALCULATORS ---
   const getInteractiveRate = () => interactiveComplexity ? getRate('90785') : 0;
 
   const getNewPatientComboTotal = (emCode: string) => {
@@ -259,6 +267,7 @@ export default function BillingCommandCenter() {
   };
   const { pos, modifier, alertText } = getTelehealthCompliance();
 
+  // --- NOTE GENERATOR ---
   const copyNote = (type: string) => {
     let text = "";
     const commonPrefix = `[LICENSURE: ${licensureModifier}] [POS: ${isTelehealth ? pos : '11'}] ${diagnosis ? `[Dx: ${diagnosis}]` : ''}`;
@@ -378,14 +387,20 @@ ${getTherapySection(comboTherapy)}`;
     recognition.start();
   };
 
+  // --- GEMINI HANDLER ---
   const generateWithGemini = async () => {
     if (!aiInput.trim() && attachments.length === 0) {
         showToast('⚠️ Input needed');
         return;
     }
+    if (!geminiKey) {
+        showToast('⚠️ Gemini API Key required');
+        return;
+    }
+    
     setIsAiProcessing(true);
     setProcessingSource('Gemini');
-    const apiKey = ""; 
+    
     try {
         const parts: any[] = [{ text: aiInput || "Analyze the attached documents." }];
         attachments.forEach(att => {
@@ -393,8 +408,9 @@ ${getTherapySection(comboTherapy)}`;
                 inlineData: { mimeType: att.mimeType, data: att.data }
             });
         });
+
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -405,8 +421,10 @@ ${getTherapySection(comboTherapy)}`;
                 })
             }
         );
+        
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
+
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
             const parsed = JSON.parse(text);
@@ -426,6 +444,7 @@ ${getTherapySection(comboTherapy)}`;
     }
   };
 
+  // --- PERPLEXITY HANDLER ---
   const generateWithPerplexity = async () => {
     if (!aiInput.trim()) {
         showToast('⚠️ Text/Notes required for Perplexity (Files ignored)');
@@ -435,8 +454,10 @@ ${getTherapySection(comboTherapy)}`;
         showToast('⚠️ Perplexity API Key required');
         return;
     }
+
     setIsAiProcessing(true);
     setProcessingSource('Perplexity');
+
     try {
         const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
@@ -452,10 +473,15 @@ ${getTherapySection(comboTherapy)}`;
                 ],
             })
         });
+
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
+
         const text = data.choices?.[0]?.message?.content;
+        
+        // Clean markdown code blocks if Perplexity includes them
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
         if (cleanText) {
             const parsed = JSON.parse(cleanText);
             parsed.source = 'Perplexity';
@@ -465,6 +491,7 @@ ${getTherapySection(comboTherapy)}`;
         } else {
             throw new Error("No output");
         }
+
     } catch (e: any) {
         console.error(e);
         showToast(`❌ Perplexity Error: ${e.message}`);
@@ -509,6 +536,7 @@ ${getTherapySection(comboTherapy)}`;
           <h1 className="text-xl font-bold mb-1">Billing Command Center</h1>
           <p className="text-slate-400 text-sm mb-4">Integrative Psychiatry • Dr. Zelisko</p>
           
+          {/* Header Controls */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div>
                  <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Licensure</label>
@@ -539,27 +567,6 @@ ${getTherapySection(comboTherapy)}`;
             ))}
           </select>
         </div>
-        
-        {/* Telehealth Compliance Panel */}
-        <div className="p-4 bg-blue-50 border-b border-blue-200">
-            <div className="flex justify-between items-center mb-2">
-                <span className="font-bold text-sm text-blue-800">Telehealth Compliance</span>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                    <span className="text-xs text-blue-700 font-medium">Remote?</span>
-                    <div className={`relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in ${isTelehealth ? 'bg-blue-600' : 'bg-slate-300'} rounded-full`}>
-                        <input type="checkbox" name="toggle" id="toggle" checked={isTelehealth} onChange={() => setIsTelehealth(!isTelehealth)} className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
-                        <label htmlFor="toggle" className="toggle-label block overflow-hidden h-6 rounded-full cursor-pointer"></label>
-                    </div>
-                </label>
-            </div>
-            {isTelehealth && (
-                <div className="text-xs space-y-1 text-slate-700">
-                    <p>POS Code: <strong className="text-blue-600">{pos}</strong></p>
-                    <p>Required Modifiers: <strong className="text-blue-600">{modifier}</strong> (on CPT code)</p>
-                    <p className="font-medium text-red-600">{alertText}</p>
-                </div>
-            )}
-        </div>
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide overflow-x-auto no-print">
@@ -577,34 +584,7 @@ ${getTherapySection(comboTherapy)}`;
         {/* TAB 1: NEW PATIENT */}
         {activeTab === 'new_patient' && (
           <div className="p-6 space-y-4">
-            <div className="flex justify-between items-center">
-                <h2 className="font-bold text-lg">New Patient Intake</h2>
-                <button onClick={() => setShowMDMGuide(!showMDMGuide)} className="text-xs text-blue-600 underline font-bold">📖 MDM Guide</button>
-            </div>
-            
-            {showMDMGuide && (
-                <div className="bg-slate-50 border border-slate-300 p-4 rounded-lg text-xs space-y-3 shadow-inner">
-                    <h3 className="font-bold text-slate-800 border-b pb-1">Defining E/M Complexity</h3>
-                    <div className="grid grid-cols-1 gap-2">
-                        <div className="bg-white p-2 rounded border border-orange-200">
-                            <div className="font-bold text-orange-700 mb-1">MODERATE (99204)</div>
-                            <ul className="list-disc pl-3 space-y-1 text-slate-600">
-                                <li>1 Acute illness OR 2 stable chronic illnesses.</li>
-                                <li>Prescription management.</li>
-                            </ul>
-                        </div>
-                        <div className="bg-white p-2 rounded border border-green-200">
-                            <div className="font-bold text-green-700 mb-1">HIGH (99205)</div>
-                            <ul className="list-disc pl-3 space-y-1 text-slate-600">
-                                <li>Chronic w/ exacerbation OR threat to life.</li>
-                                <li>High-risk meds (Lithium/Clozapine) or Hospitalization decision.</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <button onClick={() => setShowMDMGuide(false)} className="w-full py-1 bg-slate-200 text-slate-600 rounded mt-2">Close Guide</button>
-                </div>
-            )}
-            
+            <h2 className="font-bold text-lg">New Patient Intake</h2>
             <div className="bg-slate-100 p-4 rounded-lg border border-slate-200">
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Psychotherapy Time</label>
                 <select 
@@ -619,30 +599,25 @@ ${getTherapySection(comboTherapy)}`;
                 <div className="mt-3 flex items-center space-x-2">
                     <input 
                         type="checkbox" 
-                        id="newPtInt" 
                         checked={interactiveComplexity} 
                         onChange={(e) => setInteractiveComplexity(e.target.checked)}
                         className="w-4 h-4 text-blue-600 rounded"
                     />
-                    <label htmlFor="newPtInt" className="text-sm text-slate-700 font-medium">Add Interactive Complexity (+90785)</label>
+                    <label className="text-sm text-slate-700 font-medium">Add Interactive Complexity (+90785)</label>
                 </div>
             </div>
 
-            <h3 className="font-bold text-md text-slate-700 border-b pb-1 mt-6">Profitability Strategies</h3>
-
-            {/* 99204 Combo Card */}
             <div className="p-4 rounded-lg border border-orange-300 bg-orange-50 flex justify-between items-center group relative overflow-hidden">
               <div className="relative z-10">
                 <div className="font-bold text-orange-900">99204 + {newPtTherapyAddOn} {interactiveComplexity && '+ 90785'}</div>
                 <div className="text-xs text-orange-800">Moderate Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-orange-700">{formatCurrency(getNewPatientComboTotal('99204'))}</div>
+                <div className="text-xl font-bold text-orange-700">{formatCurrency(calculateNewPatientTotal('99204'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99204')} className="text-xs text-orange-700 hover:text-orange-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
 
-            {/* 99205 Combo Card */}
             <div className="p-4 rounded-lg border border-green-600 bg-green-50 flex justify-between items-center group relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-green-200 text-green-800 text-[10px] px-2 py-0.5 rounded-bl font-bold">MAXIMIZER</div>
               <div className="relative z-10">
@@ -650,24 +625,10 @@ ${getTherapySection(comboTherapy)}`;
                 <div className="text-xs text-green-800">High Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-green-700">{formatCurrency(getNewPatientComboTotal('99205'))}</div>
+                <div className="text-xl font-bold text-green-700">{formatCurrency(calculateNewPatientTotal('99205'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99205')} className="text-xs text-green-700 hover:text-green-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
-
-            <div className="mt-6 pt-4 border-t border-slate-200">
-                <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex justify-between items-center group">
-                <div>
-                    <div className="font-bold text-slate-800">90792</div>
-                    <div className="text-xs text-slate-500">Standard Intake (No Therapy Add-on)</div>
-                </div>
-                <div className="text-right">
-                    <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('90792'))}</div>
-                    <button onClick={() => copyNote('90792')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
-                </div>
-                </div>
-            </div>
-            
           </div>
         )}
 
@@ -675,41 +636,14 @@ ${getTherapySection(comboTherapy)}`;
         {activeTab === 'med_check' && (
           <div className="p-6 space-y-4">
             <h2 className="font-bold text-lg mb-2">Medication Management (E/M Only)</h2>
-            <button onClick={() => setShowMDMWizard(!showMDMWizard)} className="w-full py-2 bg-indigo-100 text-indigo-700 font-bold rounded hover:bg-indigo-200 transition text-sm">
-              {showMDMWizard ? "Hide MDM Wizard" : "🧙‍♂️ Launch MDM Wizard"}
-            </button>
-
-            {showMDMWizard && (
-              <div className="bg-slate-100 p-4 rounded-lg space-y-4 border border-slate-200">
-                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Status</label>
-                  <div className="flex space-x-2">
-                    <button onClick={() => setProblemLevel('low')} className={`flex-1 py-2 text-xs rounded border ${problemLevel === 'low' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>Stable</button>
-                    <button onClick={() => setProblemLevel('moderate')} className={`flex-1 py-2 text-xs rounded border ${problemLevel === 'moderate' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>Worsening</button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Risk</label>
-                  <div className="flex space-x-2">
-                    <button onClick={() => setRiskLevel('low')} className={`flex-1 py-2 text-xs rounded border ${riskLevel === 'low' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>No Meds</button>
-                    <button onClick={() => setRiskLevel('moderate')} className={`flex-1 py-2 text-xs rounded border ${riskLevel === 'moderate' ? 'bg-white border-blue-500 ring-1' : 'bg-slate-50'}`}>Prescription</button>
-                  </div>
-                </div>
-                <div className={`p-3 rounded text-sm border ${problemLevel === 'moderate' && riskLevel === 'moderate' ? 'bg-green-100 border-green-300 text-green-900' : 'bg-yellow-100 border-yellow-300 text-yellow-900'}`}>
-                  {problemLevel === 'moderate' && riskLevel === 'moderate' ? "✅ Recommended: 99214" : "⚠️ Recommended: 99213"}
-                </div>
-              </div>
-            )}
-            
              <div className="flex items-center space-x-2 mb-4">
                     <input 
                         type="checkbox" 
-                        id="medCheckInt" 
                         checked={interactiveComplexity} 
                         onChange={(e) => setInteractiveComplexity(e.target.checked)}
                         className="w-4 h-4 text-blue-600 rounded"
                     />
-                    <label htmlFor="medCheckInt" className="text-sm text-slate-700">Add Interactive Complexity (+90785)</label>
+                    <label className="text-sm text-slate-700">Add Interactive Complexity (+90785)</label>
             </div>
 
             <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center">
@@ -820,13 +754,20 @@ ${getTherapySection(comboTherapy)}`;
 
                 {/* --- INPUT SECTION --- */}
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 space-y-4 no-print">
-                    {/* Perplexity Key Input */}
-                    <div>
+                    {/* API Keys */}
+                    <div className="grid grid-cols-2 gap-2">
                         <input 
                             type="password"
                             value={perplexityKey}
                             onChange={(e) => setPerplexityKey(e.target.value)}
-                            placeholder="Enter Perplexity API Key (optional)"
+                            placeholder="Perplexity API Key"
+                            className="w-full p-2 text-xs border border-purple-200 rounded focus:border-purple-500 outline-none"
+                        />
+                        <input 
+                            type="password"
+                            value={geminiKey}
+                            onChange={(e) => setGeminiKey(e.target.value)}
+                            placeholder="Gemini API Key (Required for Jules)"
                             className="w-full p-2 text-xs border border-purple-200 rounded focus:border-purple-500 outline-none"
                         />
                     </div>
