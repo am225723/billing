@@ -87,6 +87,7 @@ Analyze the provided Intake Forms (PDF/Images), Audio Files (Session recordings/
 `;
 
 interface ClinicalReport {
+  source?: 'Gemini' | 'Perplexity'; // To track which AI generated it
   patientName: string;
   dob: string;
   dateOfService: string;
@@ -168,9 +169,17 @@ export default function BillingCommandCenter() {
   // --- STATE: AI Assistant ---
   const [aiInput, setAiInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [generatedReport, setGeneratedReport] = useState<ClinicalReport | null>(null);
+  
+  // Reports
+  const [geminiReport, setGeminiReport] = useState<ClinicalReport | null>(null);
+  const [perplexityReport, setPerplexityReport] = useState<ClinicalReport | null>(null);
+  const [activeReportView, setActiveReportView] = useState<'Gemini' | 'Perplexity'>('Gemini');
+
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [processingSource, setProcessingSource] = useState<'Gemini' | 'Perplexity' | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  // Default API Key set
+  const [perplexityKey, setPerplexityKey] = useState('Pplx-GemdHAnRW0DmdbTkQXPVEKuG6dvp8ulzil1lrBJ7UJPJPcVi');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- STATE: UI Feedback ---
@@ -274,26 +283,22 @@ export default function BillingCommandCenter() {
     recognition.start();
   };
 
-  const generateWithJules = async () => {
+  // --- GEMINI HANDLER ---
+  const generateWithGemini = async () => {
     if (!aiInput.trim() && attachments.length === 0) {
-        showToast('⚠️ Please upload files or enter notes first');
+        showToast('⚠️ Input needed');
         return;
     }
     
     setIsAiProcessing(true);
-    const apiKey = ""; // Runtime provided
+    setProcessingSource('Gemini');
+    const apiKey = ""; // Runtime provided for Gemini
     
     try {
-        // Build parts array
         const parts: any[] = [{ text: aiInput || "Analyze the attached documents." }];
-        
-        // Add attachments (images/pdfs/audio)
         attachments.forEach(att => {
             parts.push({
-                inlineData: {
-                    mimeType: att.mimeType,
-                    data: att.data
-                }
+                inlineData: { mimeType: att.mimeType, data: att.data }
             });
         });
 
@@ -311,25 +316,81 @@ export default function BillingCommandCenter() {
         );
         
         const data = await response.json();
-        
-        if (data.error) {
-            throw new Error(data.error.message);
-        }
+        if (data.error) throw new Error(data.error.message);
 
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        
         if (text) {
             const parsed = JSON.parse(text);
-            setGeneratedReport(parsed);
-            showToast('🤖 Report Generated!');
+            parsed.source = 'Gemini';
+            setGeminiReport(parsed);
+            setActiveReportView('Gemini');
+            showToast('🤖 Gemini Report Ready!');
         } else {
             throw new Error("No output");
         }
     } catch (e: any) {
         console.error(e);
-        showToast(`❌ Error: ${e.message || 'Generation failed'}`);
+        showToast(`❌ Gemini Error: ${e.message}`);
     } finally {
         setIsAiProcessing(false);
+        setProcessingSource(null);
+    }
+  };
+
+  // --- PERPLEXITY HANDLER ---
+  const generateWithPerplexity = async () => {
+    if (!aiInput.trim()) {
+        showToast('⚠️ Text/Notes required for Perplexity (Files ignored)');
+        return;
+    }
+    if (!perplexityKey) {
+        showToast('⚠️ Perplexity API Key required');
+        return;
+    }
+
+    setIsAiProcessing(true);
+    setProcessingSource('Perplexity');
+
+    try {
+        const response = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${perplexityKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'llama-3.1-sonar-large-128k-online',
+                messages: [
+                    { role: 'system', content: JULES_SYSTEM_PROMPT + "\n IMPORTANT: Return ONLY JSON." },
+                    { role: 'user', content: aiInput }
+                ],
+            })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+
+        const text = data.choices?.[0]?.message?.content;
+        
+        // Clean markdown code blocks if Perplexity includes them
+        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        if (cleanText) {
+            const parsed = JSON.parse(cleanText);
+            parsed.source = 'Perplexity';
+            setPerplexityReport(parsed);
+            setActiveReportView('Perplexity');
+            showToast('🧠 Perplexity Report Ready!');
+        } else {
+            throw new Error("No output");
+        }
+
+    } catch (e: any) {
+        console.error(e);
+        showToast(`❌ Perplexity Error: ${e.message}`);
+    } finally {
+        setIsAiProcessing(false);
+        setProcessingSource(null);
     }
   };
 
@@ -337,56 +398,42 @@ export default function BillingCommandCenter() {
     window.print();
   };
 
+  const currentReport = activeReportView === 'Gemini' ? geminiReport : perplexityReport;
+
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-900 pb-20 print:p-0 print:bg-white">
       {/* Styles for Printing */}
       <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden;
-          }
-          #printable-report, #printable-report * {
-            visibility: visible;
-          }
+          body * { visibility: hidden; }
+          #printable-report, #printable-report * { visibility: visible; }
           #printable-report {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 20px;
-            background: white;
-            color: black;
+            position: absolute; left: 0; top: 0; width: 100%;
+            margin: 0; padding: 20px; background: white; color: black;
           }
-          /* Hide non-print elements */
-          .no-print {
-            display: none !important;
-          }
+          .no-print { display: none !important; }
         }
       `}</style>
 
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200 relative print:max-w-none print:shadow-none print:border-none print:rounded-none">
         
-        {/* Toast Notification (No Print) */}
+        {/* Toast Notification */}
         {toastMessage && (
             <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl z-50 flex items-center animate-bounce whitespace-nowrap no-print">
                 ✅ {toastMessage}
             </div>
         )}
 
-        {/* Header (No Print) */}
+        {/* Header */}
         <div className="bg-slate-900 p-6 text-white no-print">
           <h1 className="text-xl font-bold mb-1">Billing Command Center</h1>
           <p className="text-slate-400 text-sm mb-4">Integrative Psychiatry • Dr. Zelisko</p>
           
+          {/* Header Controls */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div>
                  <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Licensure</label>
-                 <select 
-                    value={licensureModifier}
-                    onChange={(e) => setLicensureModifier(e.target.value as Licensure)}
-                    className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                 >
+                 <select value={licensureModifier} onChange={(e) => setLicensureModifier(e.target.value as Licensure)} className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 text-sm">
                     <option value="AF">AF - Psychiatrist</option>
                     <option value="AH">AH - Psychologist</option>
                     <option value="HO">HO - LCSW/LPC</option>
@@ -394,16 +441,10 @@ export default function BillingCommandCenter() {
                  </select>
             </div>
             <div>
-                 <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Diagnosis (ICD-10)</label>
-                 <select 
-                    value={diagnosis}
-                    onChange={(e) => setDiagnosis(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                 >
+                 <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Diagnosis</label>
+                 <select value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 text-sm">
                     <option value="">-- Select Dx --</option>
-                    {COMMON_DX.map(dx => (
-                        <option key={dx.code} value={dx.code}>{dx.code} - {dx.label.split(',')[0]}</option>
-                    ))}
+                    {COMMON_DX.map(dx => (<option key={dx.code} value={dx.code}>{dx.code}</option>))}
                  </select>
             </div>
           </div>
@@ -420,7 +461,7 @@ export default function BillingCommandCenter() {
           </select>
         </div>
 
-        {/* Navigation Tabs (No Print) */}
+        {/* Navigation Tabs */}
         <div className="flex border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide overflow-x-auto no-print">
           {['new_patient', 'med_check', 'combo', 'ai_assistant', 'additional_revenue'].map(tab => (
             <button 
@@ -428,18 +469,23 @@ export default function BillingCommandCenter() {
               onClick={() => setActiveTab(tab as Tab)}
               className={`flex-shrink-0 px-3 py-3 text-center transition-colors duration-100 whitespace-nowrap ${activeTab === tab ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
             >
-              {tab === 'ai_assistant' ? '🤖 JULES AI (UPLOAD)' : tab.replace('_', ' ')}
+              {tab === 'ai_assistant' ? '🤖 JULES AI' : tab.replace('_', ' ')}
             </button>
           ))}
         </div>
 
-        {/* TAB 1, 2, 3, 5 Logic Hidden for Brevity - Standard Billing Logic Remains */}
-        {activeTab !== 'ai_assistant' && activeTab !== 'treatment_plan' && (
+        {/* TAB 1, 2, 3 Logic Hidden for Brevity (Standard Billing) */}
+        {activeTab !== 'ai_assistant' && activeTab !== 'treatment_plan' && activeTab !== 'additional_revenue' && (
              <div className="p-6 text-center text-slate-500 text-sm no-print">
                  (Standard Billing Calculators available in this tab)
                  <br/><br/>
-                 <button onClick={() => setActiveTab('ai_assistant')} className="text-blue-600 underline">Go to Jules AI for PDF Reports</button>
+                 <button onClick={() => setActiveTab('ai_assistant')} className="text-blue-600 underline">Go to Jules AI</button>
              </div>
+        )}
+        
+        {/* ADD REVENUE TAB PLACEHOLDER */}
+        {activeTab === 'additional_revenue' && (
+             <div className="p-6 text-center text-slate-500 text-sm no-print">Revenue Opps (G0552, G0539)</div>
         )}
 
         {/* TAB 6: AI ASSISTANT (JULES) */}
@@ -447,14 +493,25 @@ export default function BillingCommandCenter() {
             <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between no-print">
                     <h2 className="font-bold text-lg text-purple-700">Jules AI Assistant</h2>
-                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded font-bold">Multimodal</span>
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded font-bold">Dual Engine</span>
                 </div>
 
-                {/* Input Section (No Print) */}
-                {!generatedReport && (
+                {/* --- INPUT SECTION --- */}
                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 space-y-4 no-print">
+                    {/* Perplexity Key Input */}
                     <div>
-                        <label className="block text-xs font-bold uppercase text-purple-800 mb-2">1. Upload Files (PDF / IMG / AUDIO)</label>
+                        <input 
+                            type="password"
+                            value={perplexityKey}
+                            onChange={(e) => setPerplexityKey(e.target.value)}
+                            placeholder="Enter Perplexity API Key (optional)"
+                            className="w-full p-2 text-xs border border-purple-200 rounded focus:border-purple-500 outline-none"
+                        />
+                    </div>
+
+                    {/* File Upload */}
+                    <div>
+                        <label className="block text-xs font-bold uppercase text-purple-800 mb-2">1. Upload (PDF / Audio / IMG)</label>
                         <input 
                             type="file" 
                             multiple
@@ -463,12 +520,12 @@ export default function BillingCommandCenter() {
                             ref={fileInputRef}
                             className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200"
                         />
-                        {/* Attachment List */}
+                        {/* Attachments */}
                         {attachments.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-2">
                                 {attachments.map((att, idx) => (
                                     <span key={idx} className="flex items-center text-[10px] bg-white border border-purple-200 px-2 py-1 rounded-full text-purple-700">
-                                        📎 {att.name}
+                                        📎 {att.name.substring(0, 15)}...
                                         <button onClick={() => removeAttachment(idx)} className="ml-2 text-red-500 font-bold">×</button>
                                     </span>
                                 ))}
@@ -476,9 +533,10 @@ export default function BillingCommandCenter() {
                         )}
                     </div>
 
+                    {/* Dictation Area */}
                     <div>
                         <div className="flex justify-between items-center mb-2">
-                             <label className="block text-xs font-bold uppercase text-purple-800">2. Add Context / Dictation</label>
+                             <label className="block text-xs font-bold uppercase text-purple-800">2. Notes / Dictation</label>
                              <button 
                                 onClick={toggleRecording}
                                 className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-bold transition-colors ${isRecording ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
@@ -489,162 +547,133 @@ export default function BillingCommandCenter() {
                         <textarea
                             value={aiInput}
                             onChange={(e) => setAiInput(e.target.value)}
-                            placeholder="Add specific notes, observations, or dictate here to combine with files..."
-                            className="w-full h-40 p-3 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none"
+                            placeholder="Type notes or dictate here. (Required for Perplexity)"
+                            className="w-full h-32 p-3 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none"
                         />
                     </div>
 
-                    <button 
-                        onClick={generateWithJules}
-                        disabled={isAiProcessing}
-                        className={`w-full py-3 rounded-lg shadow font-bold text-white transition-all flex items-center justify-center ${isAiProcessing ? 'bg-slate-400 cursor-wait' : 'bg-purple-600 hover:bg-purple-700'}`}
-                    >
-                        {isAiProcessing ? '⚙️ Jules is reading your files...' : '✨ Generate Clinical Report'}
-                    </button>
-                </div>
-                )}
+                    {/* DUAL BUTTONS */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={generateWithGemini}
+                            disabled={isAiProcessing}
+                            className={`py-3 rounded-lg shadow font-bold text-white text-xs transition-all flex flex-col items-center justify-center ${isAiProcessing && processingSource === 'Gemini' ? 'bg-slate-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+                        >
+                            <span>✨ Jules (Gemini)</span>
+                            <span className="text-[9px] font-normal opacity-75">Multimodal (Files + Audio)</span>
+                        </button>
 
-                {/* VISUAL REPORT PREVIEW (This is what gets printed) */}
-                {generatedReport && (
-                    <div className="animate-fade-in">
-                        <div className="flex justify-between items-center mb-4 no-print">
-                            <h3 className="font-bold text-slate-700">Document Preview</h3>
-                            <div className="space-x-2">
-                                <button onClick={() => setGeneratedReport(null)} className="px-3 py-1 bg-slate-200 rounded text-xs font-bold hover:bg-slate-300">Edit Inputs</button>
-                                <button onClick={printReport} className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 shadow">🖨️ Save as PDF</button>
+                        <button 
+                            onClick={generateWithPerplexity}
+                            disabled={isAiProcessing}
+                            className={`py-3 rounded-lg shadow font-bold text-white text-xs transition-all flex flex-col items-center justify-center ${isAiProcessing && processingSource === 'Perplexity' ? 'bg-slate-400' : 'bg-teal-600 hover:bg-teal-700'}`}
+                        >
+                            <span>🧠 Perplexity AI</span>
+                            <span className="text-[9px] font-normal opacity-75">Research/Text Only</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* --- REPORT PREVIEW SECTION --- */}
+                {(geminiReport || perplexityReport) && (
+                    <div className="animate-fade-in border-t-4 border-slate-200 pt-4">
+                        <div className="flex items-center justify-between mb-4 no-print">
+                            <div className="flex space-x-2">
+                                <button 
+                                    onClick={() => setActiveReportView('Gemini')}
+                                    disabled={!geminiReport}
+                                    className={`px-4 py-2 rounded text-xs font-bold ${activeReportView === 'Gemini' ? 'bg-blue-600 text-white shadow' : 'bg-slate-100 text-slate-400'}`}
+                                >
+                                    Gemini Report
+                                </button>
+                                <button 
+                                    onClick={() => setActiveReportView('Perplexity')}
+                                    disabled={!perplexityReport}
+                                    className={`px-4 py-2 rounded text-xs font-bold ${activeReportView === 'Perplexity' ? 'bg-teal-600 text-white shadow' : 'bg-slate-100 text-slate-400'}`}
+                                >
+                                    Perplexity Report
+                                </button>
                             </div>
+                            <button onClick={printReport} className="px-3 py-1 bg-slate-800 text-white rounded text-xs font-bold hover:bg-black shadow">
+                                🖨️ Save PDF
+                            </button>
                         </div>
 
                         {/* THE PRINTABLE DOCUMENT */}
-                        <div id="printable-report" className="bg-white text-black font-sans leading-relaxed text-sm p-8 border border-slate-200 shadow-sm">
-                            <div className="text-center border-b pb-4 mb-4">
-                                <h1 className="text-xl font-bold uppercase tracking-wide">Clinical Mental Health Treatment Plan</h1>
-                                <p className="text-xs text-slate-500 mt-1">CONFIDENTIAL PATIENT RECORD</p>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 text-xs mb-6">
-                                <div>
-                                    <p><strong>Patient Name:</strong> {generatedReport.patientName}</p>
-                                    <p><strong>DOB:</strong> {generatedReport.dob}</p>
-                                    <p><strong>Service:</strong> Initial Psychiatric Evaluation</p>
+                        {currentReport ? (
+                            <div id="printable-report" className="bg-white text-black font-sans leading-relaxed text-sm p-8 border border-slate-200 shadow-sm relative">
+                                <div className="absolute top-2 right-2 text-[10px] text-slate-300 uppercase tracking-widest no-print">
+                                    Generated by {currentReport.source}
                                 </div>
-                                <div className="text-right">
-                                    <p><strong>Provider:</strong> {generatedReport.providerName}</p>
-                                    <p><strong>Date:</strong> {generatedReport.dateOfService}</p>
-                                    <p><strong>Client ID:</strong> {generatedReport.clientID}</p>
+
+                                <div className="text-center border-b pb-4 mb-4">
+                                    <h1 className="text-xl font-bold uppercase tracking-wide">Clinical Mental Health Treatment Plan</h1>
+                                    <p className="text-xs text-slate-500 mt-1">CONFIDENTIAL PATIENT RECORD</p>
                                 </div>
-                            </div>
 
-                            <div className="space-y-4">
-                                <section>
-                                    <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Clinical Formulation</h2>
-                                    <p className="mb-2"><strong>Chief Complaint:</strong> "{generatedReport.chiefComplaint}"</p>
-                                    <p className="mb-2"><strong>HPI:</strong> {generatedReport.hpi}</p>
-                                    <p className="mb-2"><strong>ROS:</strong> {generatedReport.ros}</p>
-                                    <p className="mb-2"><strong>History:</strong> {generatedReport.psychHistory} | {generatedReport.medicalHistory} | {generatedReport.substanceUse}</p>
-                                    <p><strong>Current Meds:</strong> {generatedReport.currentMeds}</p>
-                                </section>
-
-                                <section>
-                                    <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Mental Status Exam (MSE)</h2>
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                                        {Object.entries(generatedReport.mse).map(([key, val]) => (
-                                            <div key={key}><strong className="capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</strong> {val}</div>
-                                        ))}
-                                    </div>
-                                </section>
-
-                                <section>
-                                    <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Risk Assessment</h2>
-                                    <p><strong>SI/HI:</strong> {generatedReport.riskAssessment.si_hi}</p>
-                                    <p><strong>Self Harm/Violence:</strong> {generatedReport.riskAssessment.selfHarm}</p>
-                                    <p><strong>Safety Plan:</strong> {generatedReport.riskAssessment.safetyPlan}</p>
-                                </section>
-
-                                <section>
-                                    <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Diagnosis (DSM-5-TR)</h2>
-                                    {generatedReport.diagnosis.map((dx, idx) => (
-                                        <div key={idx} className="mb-2">
-                                            <p className="font-bold">{dx.code} - {dx.name}</p>
-                                            <p className="italic text-slate-600 pl-2 border-l-2 border-slate-200">{dx.rationale}</p>
-                                        </div>
-                                    ))}
-                                </section>
-
-                                <section>
-                                    <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Medical Decision Making</h2>
-                                    <p><strong>Level:</strong> {generatedReport.mdm.level}</p>
-                                    <p className="text-xs">{generatedReport.mdm.rationale}</p>
-                                </section>
-
-                                <section>
-                                    <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Treatment Plan</h2>
-                                    <div className="mb-2">
-                                        <strong>Pharmacotherapy:</strong>
-                                        <p className="pl-2">{generatedReport.plan.meds}</p>
-                                    </div>
-                                    <div className="mb-2">
-                                        <strong>Psychotherapy ({generatedReport.psychotherapy.therapyTime}):</strong>
-                                        <p className="pl-2">{generatedReport.plan.therapy}</p>
-                                    </div>
+                                <div className="grid grid-cols-2 gap-4 text-xs mb-6">
                                     <div>
-                                        <strong>Goals:</strong>
-                                        <ul className="list-disc pl-5">
-                                            {generatedReport.goals.map((g, i) => <li key={i}>{g}</li>)}
-                                        </ul>
+                                        <p><strong>Patient Name:</strong> {currentReport.patientName}</p>
+                                        <p><strong>DOB:</strong> {currentReport.dob}</p>
+                                        <p><strong>Service:</strong> Initial Psychiatric Evaluation</p>
                                     </div>
-                                </section>
-                            </div>
+                                    <div className="text-right">
+                                        <p><strong>Provider:</strong> {currentReport.providerName}</p>
+                                        <p><strong>Date:</strong> {currentReport.dateOfService}</p>
+                                        <p><strong>Client ID:</strong> {currentReport.clientID}</p>
+                                    </div>
+                                </div>
 
-                            <div className="mt-8 pt-4 border-t-2 border-slate-800 flex justify-between items-end">
-                                <div>
-                                    <div className="font-serif text-xl italic mb-1">Douglas Zelisko, MD</div>
-                                    <p className="text-xs uppercase font-bold">Provider Signature</p>
+                                <div className="space-y-4">
+                                    <section>
+                                        <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Clinical Formulation</h2>
+                                        <p className="mb-2"><strong>Chief Complaint:</strong> "{currentReport.chiefComplaint}"</p>
+                                        <p className="mb-2"><strong>HPI:</strong> {currentReport.hpi}</p>
+                                        <p className="mb-2"><strong>ROS:</strong> {currentReport.ros}</p>
+                                        <p><strong>History:</strong> {currentReport.psychHistory} | {currentReport.medicalHistory}</p>
+                                    </section>
+
+                                    <section>
+                                        <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Mental Status Exam (MSE)</h2>
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                            {Object.entries(currentReport.mse).map(([key, val]) => (
+                                                <div key={key}><strong className="capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</strong> {val}</div>
+                                            ))}
+                                        </div>
+                                    </section>
+
+                                    <section>
+                                        <h2 className="font-bold border-b border-slate-300 mb-1 uppercase text-xs">Diagnosis & Plan</h2>
+                                        {currentReport.diagnosis.map((dx, idx) => (
+                                            <div key={idx} className="mb-2">
+                                                <p className="font-bold">{dx.code} - {dx.name}</p>
+                                                <p className="italic text-slate-600 pl-2 border-l-2 border-slate-200 text-xs">{dx.rationale}</p>
+                                            </div>
+                                        ))}
+                                        <div className="mt-2">
+                                            <strong>Plan:</strong> {currentReport.plan.meds} | {currentReport.plan.therapy}
+                                        </div>
+                                    </section>
                                 </div>
-                                <div className="text-xs text-right">
-                                    <p>Electronically Signed: {generatedReport.dateOfService}</p>
+
+                                <div className="mt-8 pt-4 border-t-2 border-slate-800 flex justify-between items-end">
+                                    <div>
+                                        <div className="font-serif text-xl italic mb-1">Douglas Zelisko, MD</div>
+                                        <p className="text-xs uppercase font-bold">Provider Signature</p>
+                                    </div>
+                                    <div className="text-xs text-right">
+                                        <p>Electronically Signed: {currentReport.dateOfService}</p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="p-8 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded">
+                                Select a report to preview
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
-        )}
-        
-        {/* TAB 7: ADDITIONAL REVENUE */}
-        {activeTab === 'additional_revenue' && (
-          <div className="p-6 space-y-6">
-            <h2 className="font-bold text-lg mb-4">Additional Revenue Opportunities</h2>
-            
-            <div className="space-y-3">
-                <h3 className="font-bold text-md text-slate-700 border-b pb-1">Caregiver Training Services (CTS)</h3>
-                <div className="text-xs text-slate-500 mb-2">For teaching parents/spouses skills to manage the patient's condition (not relationship-focused like family therapy).</div>
-                {[
-                  { code: 'G0539', label: 'Initial 30 mins' },
-                  { code: 'G0540', label: 'Add\'l 15 mins' },
-                ].map((item) => (
-                  <div key={item.code} className="p-3 rounded border border-slate-200 bg-white flex justify-between items-center">
-                    <span className="font-medium text-slate-700">{item.label} <span className="text-slate-400 text-xs">({item.code})</span></span>
-                    <span className="font-bold text-green-600">{formatCurrency(getRate(item.code))}</span>
-                  </div>
-                ))}
-            </div>
-
-            <div className="space-y-3">
-                <h3 className="font-bold text-md text-slate-700 border-b pb-1">Digital Health Management (DMHT)</h3>
-                <div className="text-xs text-red-600 mb-2">WARNING: Only for FDA-cleared apps (e.g., Somryst). Billing for common apps is fraud.</div>
-                {[
-                  { code: 'G0552', label: 'Device Supply/Onboarding' },
-                  { code: 'G0553', label: 'Monthly Mgmt (First 20m)' },
-                  { code: 'G0554', label: 'Monthly Mgmt (Add\'l 20m)' },
-                ].map((item) => (
-                  <div key={item.code} className="p-3 rounded border border-slate-200 bg-white flex justify-between items-center">
-                    <span className="font-medium text-slate-700">{item.label} <span className="text-slate-400 text-xs">({item.code})</span></span>
-                    <span className="font-bold text-green-600">{formatCurrency(getRate(item.code))}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
         )}
 
       </div>
