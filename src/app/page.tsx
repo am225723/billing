@@ -167,10 +167,12 @@ export default function BillingCommandCenter() {
   const [showMDMGuide, setShowMDMGuide] = useState(false); 
   const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); 
 
-  // --- STATE: Med Check Wizard ---
-  const [showMDMWizard, setShowMDMWizard] = useState(false);
-  const [problemLevel, setProblemLevel] = useState('low');
-  const [riskLevel, setRiskLevel] = useState('low');
+  // --- STATE: Med Check Wizard (OPTIMIZER) ---
+  const [showOptimizer, setShowOptimizer] = useState(false);
+  const [optTime, setOptTime] = useState<number>(15); // Minutes
+  const [optProb, setOptProb] = useState<number>(2); // 1-4 scale
+  const [optData, setOptData] = useState<number>(1); // 1-4 scale
+  const [optRisk, setOptRisk] = useState<number>(3); // 1-4 scale
 
   // --- STATE: Combo Visit ---
   const [comboMedical, setComboMedical] = useState('99214');
@@ -203,9 +205,11 @@ export default function BillingCommandCenter() {
     setInteractiveComplexity(false);
   }, [activeTab]);
 
-  // --- HELPER: Formatter ---
+  // --- HELPER: Formatter (Flash Logic) ---
   const formatCurrency = (amount: number) => {
-    if (isNaN(amount) || amount === undefined) return '$0.00';
+    if (!amount || amount === 0 || isNaN(amount)) {
+        return '⚡ Approx';
+    }
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
@@ -218,14 +222,42 @@ export default function BillingCommandCenter() {
   // --- REVENUE CALCULATORS ---
   const getInteractiveRate = () => interactiveComplexity ? getRate('90785') : 0;
 
-  // Renamed to match usage in JSX
-  const calculateNewPatientTotal = (emCode: string) => {
+  const getNewPatientComboTotal = (emCode: string) => {
     return getRate(emCode) + getRate(newPtTherapyAddOn) + getInteractiveRate();
   };
 
-  // Renamed to match usage in JSX
-  const calculateComboTotal = () => {
+  const getComboTotal = () => {
     return getRate(comboMedical) + getRate(comboTherapy) + getInteractiveRate();
+  };
+
+  // --- OPTIMIZER LOGIC ---
+  const calculateOptimizedBilling = () => {
+    // 1. Time Based (99212-99215)
+    let timeCode = 'N/A';
+    if (optTime >= 40) timeCode = '99215';
+    else if (optTime >= 30) timeCode = '99214';
+    else if (optTime >= 20) timeCode = '99213';
+    else if (optTime >= 10) timeCode = '99212';
+
+    // 2. MDM Based (2 out of 3 rule)
+    // Levels: 2=Straightforward(99212), 3=Low(99213), 4=Mod(99214), 5=High(99215)
+    // We map our 1-4 scale inputs directly to code levels for simplicity in this logic
+    // Input 1=Minimal(99212), 2=Low(99213), 3=Mod(99214), 4=High(99215)
+    
+    const scores = [optProb, optData, optRisk].sort((a, b) => b - a); // Sort descending
+    // 2nd highest score determines the level (because you need 2/3 to meet or exceed)
+    const mdmScore = scores[1]; 
+    
+    let mdmCode = '99212';
+    if (mdmScore >= 4) mdmCode = '99215';
+    else if (mdmScore >= 3) mdmCode = '99214';
+    else if (mdmScore >= 2) mdmCode = '99213';
+
+    // 3. Compare Revenue
+    const timeRevenue = getRate(timeCode);
+    const mdmRevenue = getRate(mdmCode);
+
+    return { timeCode, timeRevenue, mdmCode, mdmRevenue };
   };
 
   const showToast = (msg: string) => {
@@ -444,8 +476,8 @@ ${getTherapySection(comboTherapy)}`;
 
   // --- PERPLEXITY HANDLER ---
   const generateWithPerplexity = async () => {
-    if (!aiInput.trim() && attachments.length === 0) {
-        showToast('⚠️ Input needed');
+    if (!aiInput.trim()) {
+        showToast('⚠️ Text/Notes required for Perplexity (Files ignored)');
         return;
     }
     if (!perplexityKey) {
@@ -457,11 +489,6 @@ ${getTherapySection(comboTherapy)}`;
     setProcessingSource('Perplexity');
 
     try {
-        let userContent = aiInput || "Please analyze the provided context.";
-        if (attachments.length > 0) {
-            userContent += "\n\n[System Note: User has attached files (audio/pdf/image) which you should process if your model capabilities allow, or infer context from available text metadata: " + attachments.map(a => a.name).join(', ') + "]";
-        }
-
         const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: {
@@ -472,7 +499,7 @@ ${getTherapySection(comboTherapy)}`;
                 model: 'llama-3.1-sonar-large-128k-online',
                 messages: [
                     { role: 'system', content: JULES_SYSTEM_PROMPT + "\n IMPORTANT: Return ONLY JSON." },
-                    { role: 'user', content: userContent }
+                    { role: 'user', content: aiInput }
                 ],
             })
         });
@@ -482,6 +509,7 @@ ${getTherapySection(comboTherapy)}`;
 
         const text = data.choices?.[0]?.message?.content;
         
+        // Clean markdown code blocks if Perplexity includes them
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
         if (cleanText) {
@@ -508,6 +536,7 @@ ${getTherapySection(comboTherapy)}`;
   };
 
   const currentReport = activeReportView === 'Gemini' ? geminiReport : perplexityReport;
+  const optimization = calculateOptimizedBilling();
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-900 pb-20 print:p-0 print:bg-white">
@@ -609,17 +638,21 @@ ${getTherapySection(comboTherapy)}`;
                 </div>
             </div>
 
+            <h3 className="font-bold text-md text-slate-700 border-b pb-1 mt-6">Profitability Strategies</h3>
+
+            {/* 99204 Combo Card */}
             <div className="p-4 rounded-lg border border-orange-300 bg-orange-50 flex justify-between items-center group relative overflow-hidden">
               <div className="relative z-10">
                 <div className="font-bold text-orange-900">99204 + {newPtTherapyAddOn} {interactiveComplexity && '+ 90785'}</div>
                 <div className="text-xs text-orange-800">Moderate Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-orange-700">{formatCurrency(calculateNewPatientTotal('99204'))}</div>
+                <div className="text-xl font-bold text-orange-700">{formatCurrency(getNewPatientComboTotal('99204'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99204')} className="text-xs text-orange-700 hover:text-orange-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
 
+            {/* 99205 Combo Card */}
             <div className="p-4 rounded-lg border border-green-600 bg-green-50 flex justify-between items-center group relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-green-200 text-green-800 text-[10px] px-2 py-0.5 rounded-bl font-bold">MAXIMIZER</div>
               <div className="relative z-10">
@@ -627,42 +660,148 @@ ${getTherapySection(comboTherapy)}`;
                 <div className="text-xs text-green-800">High Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-green-700">{formatCurrency(calculateNewPatientTotal('99205'))}</div>
+                <div className="text-xl font-bold text-green-700">{formatCurrency(getNewPatientComboTotal('99205'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99205')} className="text-xs text-green-700 hover:text-green-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
+
+            {/* 90792 Standard Card - RESTORED */}
+            <div className="mt-6 pt-4 border-t border-slate-200">
+                <h3 className="font-bold text-md text-slate-700 mb-2">Standard Evaluation</h3>
+                <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center group hover:border-blue-300 transition-colors">
+                <div>
+                    <div className="font-bold text-slate-800">90792 {interactiveComplexity && '+ 90785'}</div>
+                    <div className="text-xs text-slate-500">Psychiatric Diagnostic Evaluation (Medical)</div>
+                </div>
+                <div className="text-right">
+                    <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('90792') + getInteractiveRate())}</div>
+                    <button onClick={() => copyNote('90792')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
+                </div>
+                </div>
+            </div>
+            
           </div>
         )}
 
-        {/* TAB 2: MED CHECK */}
+        {/* TAB 2: MED CHECK (Updated with OPTIMIZER) */}
         {activeTab === 'med_check' && (
           <div className="p-6 space-y-4">
-            <h2 className="font-bold text-lg mb-2">Medication Management (E/M Only)</h2>
-             <div className="flex items-center space-x-2 mb-4">
-                    <input 
-                        type="checkbox" 
-                        checked={interactiveComplexity} 
-                        onChange={(e) => setInteractiveComplexity(e.target.checked)}
-                        className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <label className="text-sm text-slate-700">Add Interactive Complexity (+90785)</label>
+            <div className="flex justify-between items-center">
+                <h2 className="font-bold text-lg">Medication Management</h2>
+                <button 
+                    onClick={() => setShowOptimizer(!showOptimizer)} 
+                    className={`px-3 py-1 rounded text-xs font-bold transition-colors ${showOptimizer ? 'bg-purple-600 text-white' : 'bg-slate-200 text-slate-700'}`}
+                >
+                    {showOptimizer ? 'Back to Standard' : '⚡ Smart Optimizer'}
+                </button>
             </div>
 
-            <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center">
-              <div><div className="font-bold">99213 {interactiveComplexity && '+ 90785'}</div><div className="text-sm text-slate-500">Stable Refill</div></div>
-              <div className="text-right">
-                <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99213') + getInteractiveRate())}</div>
-                <button onClick={() => copyNote('med_check_low')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
-              </div>
-            </div>
+            {/* SMART OPTIMIZER MODE */}
+            {showOptimizer ? (
+                <div className="space-y-4 animate-fade-in bg-purple-50 p-4 rounded-lg border border-purple-100">
+                    <div>
+                        <label className="block text-xs font-bold uppercase text-purple-900 mb-1">1. Total Time (Minutes)</label>
+                        <div className="flex items-center space-x-2">
+                            <input 
+                                type="range" min="5" max="60" value={optTime} 
+                                onChange={(e) => setOptTime(parseInt(e.target.value))}
+                                className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                            />
+                            <span className="font-bold text-purple-700 w-12">{optTime}m</span>
+                        </div>
+                    </div>
 
-            <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center">
-              <div><div className="font-bold">99214 {interactiveComplexity && '+ 90785'}</div><div className="text-sm text-slate-500">Complex/Adjust</div></div>
-              <div className="text-right">
-                <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99214') + getInteractiveRate())}</div>
-                <button onClick={() => copyNote('med_check_mod')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
-              </div>
-            </div>
+                    <div className="grid grid-cols-1 gap-2">
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-purple-900 mb-1">2. Problems</label>
+                            <select value={optProb} onChange={(e) => setOptProb(parseInt(e.target.value))} className="w-full text-xs p-2 rounded border border-purple-200">
+                                <option value={1}>Minimal (Self-limited)</option>
+                                <option value={2}>Low (2 Minor / 1 Stable)</option>
+                                <option value={3}>Moderate (1 Worsening / 2 Stable)</option>
+                                <option value={4}>High (Severe Exacerbation)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-purple-900 mb-1">3. Data</label>
+                            <select value={optData} onChange={(e) => setOptData(parseInt(e.target.value))} className="w-full text-xs p-2 rounded border border-purple-200">
+                                <option value={1}>Minimal / None</option>
+                                <option value={2}>Limited (Notes/Orders)</option>
+                                <option value={3}>Moderate (3 items / Historian)</option>
+                                <option value={4}>Extensive (Interp / Discuss)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-purple-900 mb-1">4. Risk</label>
+                            <select value={optRisk} onChange={(e) => setOptRisk(parseInt(e.target.value))} className="w-full text-xs p-2 rounded border border-purple-200">
+                                <option value={1}>Minimal (Rest)</option>
+                                <option value={2}>Low (OTC / Therapy)</option>
+                                <option value={3}>Moderate (Rx Mgmt)</option>
+                                <option value={4}>High (High Risk Meds)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* OPTIMIZER RESULTS CARD */}
+                    <div className="bg-white p-4 rounded-lg shadow-sm border border-purple-200 mt-4">
+                        <div className="grid grid-cols-2 gap-4 text-center border-b border-slate-100 pb-3 mb-3">
+                            <div>
+                                <div className="text-[10px] uppercase font-bold text-slate-400">Based on Time</div>
+                                <div className="font-bold text-lg text-slate-700">{optimization.timeCode}</div>
+                                <div className="text-xs text-slate-500">{formatCurrency(optimization.timeRevenue)}</div>
+                            </div>
+                            <div>
+                                <div className="text-[10px] uppercase font-bold text-slate-400">Based on MDM</div>
+                                <div className="font-bold text-lg text-slate-700">{optimization.mdmCode}</div>
+                                <div className="text-xs text-slate-500">{formatCurrency(optimization.mdmRevenue)}</div>
+                            </div>
+                        </div>
+                        
+                        <div className={`text-center font-bold p-2 rounded ${optimization.timeRevenue > optimization.mdmRevenue ? 'bg-green-100 text-green-800' : optimization.mdmRevenue > optimization.timeRevenue ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}`}>
+                            {optimization.timeRevenue > optimization.mdmRevenue ? `🚀 Bill by TIME (${optimization.timeCode})` : 
+                             optimization.mdmRevenue > optimization.timeRevenue ? `🛡️ Bill by MDM (${optimization.mdmCode})` : 
+                             "✅ Either Method is Optimal"}
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                /* STANDARD MED CHECK VIEW */
+                <div className="space-y-4">
+                    <div className="flex items-center space-x-2 mb-4 bg-slate-100 p-2 rounded">
+                            <input 
+                                type="checkbox" 
+                                id="medCheckInt" 
+                                checked={interactiveComplexity} 
+                                onChange={(e) => setInteractiveComplexity(e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded"
+                            />
+                            <label htmlFor="medCheckInt" className="text-sm text-slate-700">Add Interactive Complexity (+90785)</label>
+                    </div>
+
+                    <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center hover:border-blue-300 transition-colors">
+                    <div><div className="font-bold">99213 {interactiveComplexity && '+ 90785'}</div><div className="text-sm text-slate-500">Stable / Low Risk</div></div>
+                    <div className="text-right">
+                        <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99213') + getInteractiveRate())}</div>
+                        <button onClick={() => copyNote('med_check_low')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
+                    </div>
+                    </div>
+
+                    <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center hover:border-blue-300 transition-colors">
+                    <div><div className="font-bold">99214 {interactiveComplexity && '+ 90785'}</div><div className="text-sm text-slate-500">Moderate / Rx Mgmt</div></div>
+                    <div className="text-right">
+                        <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99214') + getInteractiveRate())}</div>
+                        <button onClick={() => copyNote('med_check_mod')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
+                    </div>
+                    </div>
+
+                    <div className="p-4 rounded-lg border border-slate-200 bg-white flex justify-between items-center hover:border-blue-300 transition-colors">
+                    <div><div className="font-bold">99215 {interactiveComplexity && '+ 90785'}</div><div className="text-sm text-slate-500">High / Threat to Life</div></div>
+                    <div className="text-right">
+                        <div className="text-xl font-bold text-blue-600">{formatCurrency(getRate('99215') + getInteractiveRate())}</div>
+                        <button onClick={() => copyNote('med_check_mod')} className="text-xs text-blue-500 hover:text-blue-700 underline mt-1 font-bold">📋 Copy Note</button>
+                    </div>
+                    </div>
+                </div>
+            )}
           </div>
         )}
 
@@ -702,7 +841,7 @@ ${getTherapySection(comboTherapy)}`;
 
             <div className="bg-slate-900 text-white p-6 rounded-lg text-center shadow-lg relative">
               <div className="text-sm text-slate-400 uppercase tracking-widest mb-1">Total Revenue</div>
-              <div className="text-4xl font-bold">{formatCurrency(calculateComboTotal())}</div>
+              <div className="text-4xl font-bold">{formatCurrency(getComboTotal())}</div>
               <button onClick={() => copyNote('combo')} className="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center mx-auto">
                 📋 Copy Note for EMR
               </button>
@@ -944,4 +1083,4 @@ ${getTherapySection(comboTherapy)}`;
       </div>
     </div>
   );
-                      }
+}
