@@ -2,11 +2,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { PAYERS } from '../data/data';
+// Import defaults, but we will load them into state for editing
+import { PAYERS as INITIAL_PAYERS, Payer } from '../data/data';
 
 // --- TYPE DEFINITIONS ---
 type Licensure = 'AF' | 'AH' | 'HO' | 'AJ' | 'SA';
-type Tab = 'new_patient' | 'med_check' | 'combo' | 'treatment_plan' | 'psychotherapy' | 'ai_assistant' | 'additional_revenue';
+type Tab = 'new_patient' | 'med_check' | 'combo' | 'treatment_plan' | 'psychotherapy' | 'ai_assistant' | 'additional_revenue' | 'rates_manager';
 
 interface Attachment {
   name: string;
@@ -158,6 +159,9 @@ export default function BillingCommandCenter() {
   const [activeTab, setActiveTab] = useState<Tab>('new_patient');
   const [selectedPayer, setSelectedPayer] = useState('anthem');
   
+  // --- STATE: Data Management (Editable Payers) ---
+  const [payersData, setPayersData] = useState<Record<string, Payer>>(INITIAL_PAYERS);
+
   // --- STATE: Compliance & Setup ---
   const [licensureModifier, setLicensureModifier] = useState<Licensure>('AF'); 
   const [isTelehealth, setIsTelehealth] = useState(false);
@@ -167,12 +171,17 @@ export default function BillingCommandCenter() {
   const [showMDMGuide, setShowMDMGuide] = useState(false); 
   const [newPtTherapyAddOn, setNewPtTherapyAddOn] = useState('90838'); 
 
-  // --- STATE: Med Check Wizard (OPTIMIZER) ---
+  // --- STATE: Med Check Wizard ---
+  const [showMDMWizard, setShowMDMWizard] = useState(false);
+  const [problemLevel, setProblemLevel] = useState('low');
+  const [riskLevel, setRiskLevel] = useState('low');
+
+  // --- STATE: Med Check Optimizer ---
   const [showOptimizer, setShowOptimizer] = useState(false);
-  const [optTime, setOptTime] = useState<number>(15); // Minutes
-  const [optProb, setOptProb] = useState<number>(2); // 1-4 scale
-  const [optData, setOptData] = useState<number>(1); // 1-4 scale
-  const [optRisk, setOptRisk] = useState<number>(3); // 1-4 scale
+  const [optTime, setOptTime] = useState<number>(15);
+  const [optProb, setOptProb] = useState<number>(2);
+  const [optData, setOptData] = useState<number>(1);
+  const [optRisk, setOptRisk] = useState<number>(3);
 
   // --- STATE: Combo Visit ---
   const [comboMedical, setComboMedical] = useState('99214');
@@ -205,7 +214,7 @@ export default function BillingCommandCenter() {
     setInteractiveComplexity(false);
   }, [activeTab]);
 
-  // --- HELPER: Formatter (Flash Logic) ---
+  // --- HELPER: Formatter ---
   const formatCurrency = (amount: number) => {
     if (!amount || amount === 0 || isNaN(amount)) {
         return '⚡ Approx';
@@ -213,10 +222,33 @@ export default function BillingCommandCenter() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
+  // --- DYNAMIC RATE GETTER ---
   const getRate = (code: string): number => {
-    if (!PAYERS) return 0;
-    const payer = PAYERS[selectedPayer as keyof typeof PAYERS];
+    if (!payersData) return 0;
+    const payer = payersData[selectedPayer as keyof typeof payersData];
     return payer?.rates[code] || 0;
+  };
+
+  // --- RATE EDITOR HANDLERS ---
+  const handleRateChange = (code: string, newValue: string) => {
+    const value = parseFloat(newValue);
+    if (isNaN(value)) return;
+
+    setPayersData(prev => ({
+        ...prev,
+        [selectedPayer]: {
+            ...prev[selectedPayer],
+            rates: {
+                ...prev[selectedPayer].rates,
+                [code]: value
+            }
+        }
+    }));
+  };
+
+  const resetRates = () => {
+    setPayersData(INITIAL_PAYERS);
+    showToast('🔄 Rates reset to defaults');
   };
 
   // --- REVENUE CALCULATORS ---
@@ -230,6 +262,9 @@ export default function BillingCommandCenter() {
     return getRate(comboMedical) + getRate(comboTherapy) + getInteractiveRate();
   };
 
+  const calculateComboTotal = getComboTotal;
+  const calculateNewPatientTotal = getNewPatientComboTotal;
+
   // --- OPTIMIZER LOGIC ---
   const calculateOptimizedBilling = () => {
     // 1. Time Based (99212-99215)
@@ -240,12 +275,7 @@ export default function BillingCommandCenter() {
     else if (optTime >= 10) timeCode = '99212';
 
     // 2. MDM Based (2 out of 3 rule)
-    // Levels: 2=Straightforward(99212), 3=Low(99213), 4=Mod(99214), 5=High(99215)
-    // We map our 1-4 scale inputs directly to code levels for simplicity in this logic
-    // Input 1=Minimal(99212), 2=Low(99213), 3=Mod(99214), 4=High(99215)
-    
-    const scores = [optProb, optData, optRisk].sort((a, b) => b - a); // Sort descending
-    // 2nd highest score determines the level (because you need 2/3 to meet or exceed)
+    const scores = [optProb, optData, optRisk].sort((a, b) => b - a); 
     const mdmScore = scores[1]; 
     
     let mdmCode = '99212';
@@ -267,7 +297,7 @@ export default function BillingCommandCenter() {
 
   // --- TELEHEALTH LOGIC ---
   const getTelehealthCompliance = () => {
-    const payerName = PAYERS[selectedPayer as keyof typeof PAYERS]?.name.toLowerCase() || '';
+    const payerName = payersData[selectedPayer]?.name.toLowerCase() || '';
     
     let pos = "11 (Office)";
     let modifier = "";
@@ -417,7 +447,6 @@ ${getTherapySection(comboTherapy)}`;
     recognition.start();
   };
 
-  // --- GEMINI HANDLER ---
   const generateWithGemini = async () => {
     if (!aiInput.trim() && attachments.length === 0) {
         showToast('⚠️ Input needed');
@@ -474,10 +503,9 @@ ${getTherapySection(comboTherapy)}`;
     }
   };
 
-  // --- PERPLEXITY HANDLER ---
   const generateWithPerplexity = async () => {
-    if (!aiInput.trim()) {
-        showToast('⚠️ Text/Notes required for Perplexity (Files ignored)');
+    if (!aiInput.trim() && attachments.length === 0) {
+        showToast('⚠️ Input needed');
         return;
     }
     if (!perplexityKey) {
@@ -489,6 +517,11 @@ ${getTherapySection(comboTherapy)}`;
     setProcessingSource('Perplexity');
 
     try {
+        let userContent = aiInput || "Please analyze the provided context.";
+        if (attachments.length > 0) {
+            userContent += "\n\n[System Note: User has attached files (audio/pdf/image) which you should process if your model capabilities allow, or infer context from available text metadata: " + attachments.map(a => a.name).join(', ') + "]";
+        }
+
         const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: {
@@ -499,7 +532,7 @@ ${getTherapySection(comboTherapy)}`;
                 model: 'llama-3.1-sonar-large-128k-online',
                 messages: [
                     { role: 'system', content: JULES_SYSTEM_PROMPT + "\n IMPORTANT: Return ONLY JSON." },
-                    { role: 'user', content: aiInput }
+                    { role: 'user', content: userContent }
                 ],
             })
         });
@@ -509,7 +542,6 @@ ${getTherapySection(comboTherapy)}`;
 
         const text = data.choices?.[0]?.message?.content;
         
-        // Clean markdown code blocks if Perplexity includes them
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
         if (cleanText) {
@@ -593,7 +625,7 @@ ${getTherapySection(comboTherapy)}`;
             onChange={(e) => setSelectedPayer(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
           >
-            {Object.entries(PAYERS || {}).map(([key, data]) => (
+            {Object.entries(payersData).map(([key, data]) => (
               <option key={key} value={key}>{data.name}</option>
             ))}
           </select>
@@ -601,7 +633,7 @@ ${getTherapySection(comboTherapy)}`;
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide overflow-x-auto no-print">
-          {['new_patient', 'med_check', 'combo', 'ai_assistant', 'additional_revenue'].map(tab => (
+          {['new_patient', 'med_check', 'combo', 'ai_assistant', 'additional_revenue', 'rates_manager'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab as Tab)}
@@ -638,21 +670,17 @@ ${getTherapySection(comboTherapy)}`;
                 </div>
             </div>
 
-            <h3 className="font-bold text-md text-slate-700 border-b pb-1 mt-6">Profitability Strategies</h3>
-
-            {/* 99204 Combo Card */}
             <div className="p-4 rounded-lg border border-orange-300 bg-orange-50 flex justify-between items-center group relative overflow-hidden">
               <div className="relative z-10">
                 <div className="font-bold text-orange-900">99204 + {newPtTherapyAddOn} {interactiveComplexity && '+ 90785'}</div>
                 <div className="text-xs text-orange-800">Moderate Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-orange-700">{formatCurrency(getNewPatientComboTotal('99204'))}</div>
+                <div className="text-xl font-bold text-orange-700">{formatCurrency(calculateNewPatientTotal('99204'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99204')} className="text-xs text-orange-700 hover:text-orange-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
 
-            {/* 99205 Combo Card */}
             <div className="p-4 rounded-lg border border-green-600 bg-green-50 flex justify-between items-center group relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-green-200 text-green-800 text-[10px] px-2 py-0.5 rounded-bl font-bold">MAXIMIZER</div>
               <div className="relative z-10">
@@ -660,7 +688,7 @@ ${getTherapySection(comboTherapy)}`;
                 <div className="text-xs text-green-800">High Intake + Therapy</div>
               </div>
               <div className="text-right relative z-10">
-                <div className="text-xl font-bold text-green-700">{formatCurrency(getNewPatientComboTotal('99205'))}</div>
+                <div className="text-xl font-bold text-green-700">{formatCurrency(calculateNewPatientTotal('99205'))}</div>
                 <button onClick={() => copyNote('new_pt_combo_99205')} className="text-xs text-green-700 hover:text-green-900 underline mt-1 font-bold">📋 Copy Note</button>
               </div>
             </div>
@@ -841,7 +869,7 @@ ${getTherapySection(comboTherapy)}`;
 
             <div className="bg-slate-900 text-white p-6 rounded-lg text-center shadow-lg relative">
               <div className="text-sm text-slate-400 uppercase tracking-widest mb-1">Total Revenue</div>
-              <div className="text-4xl font-bold">{formatCurrency(getComboTotal())}</div>
+              <div className="text-4xl font-bold">{formatCurrency(calculateComboTotal())}</div>
               <button onClick={() => copyNote('combo')} className="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center mx-auto">
                 📋 Copy Note for EMR
               </button>
@@ -1078,6 +1106,45 @@ ${getTherapySection(comboTherapy)}`;
                     </div>
                 )}
             </div>
+        )}
+
+        {/* TAB 8: RATES MANAGER */}
+        {activeTab === 'rates_manager' && (
+          <div className="p-6 space-y-4">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="font-bold text-lg">Edit Rates: {payersData[selectedPayer].name}</h2>
+                <button onClick={resetRates} className="px-3 py-1 bg-red-100 text-red-600 rounded text-xs font-bold hover:bg-red-200">
+                    Reset Default
+                </button>
+            </div>
+            
+            <div className="overflow-y-auto max-h-[500px] border border-slate-200 rounded-lg shadow-inner">
+                <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-100 font-bold text-slate-600 sticky top-0 shadow-sm">
+                        <tr>
+                            <th className="p-3 border-b">CPT Code</th>
+                            <th className="p-3 border-b">Rate ($)</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {Object.entries(payersData[selectedPayer].rates).map(([code, rate]) => (
+                            <tr key={code} className="hover:bg-blue-50 transition-colors">
+                                <td className="p-3 font-medium text-slate-700 bg-white group-hover:bg-blue-50">{code}</td>
+                                <td className="p-3 bg-white group-hover:bg-blue-50">
+                                    <input
+                                        type="number"
+                                        value={rate || ''}
+                                        onChange={(e) => handleRateChange(code, e.target.value)}
+                                        className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-mono"
+                                    />
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <p className="text-xs text-slate-400 text-center mt-2">Changes are saved temporarily for this session. Calculators will update instantly.</p>
+          </div>
         )}
 
       </div>
